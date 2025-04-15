@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { login } from '@/app/login/actions';
 
 export function LoginForm({ className, ...props }) {
   return (
@@ -30,6 +31,7 @@ export function LoginForm({ className, ...props }) {
                   id="email"
                   type="email"
                   placeholder="m@example.com"
+                  name="email"
                   required
                 />
               </div>
@@ -43,19 +45,15 @@ export function LoginForm({ className, ...props }) {
                     Forgot your password?
                   </a>
                 </div>
-                <Input id="password" type="password" required />
+                <Input id="password" type="password" name="password" required />
               </div>
-              <Button type="submit" className="w-full">
+              <Button type="submit" className="w-full" formAction={login}>
                 Login
               </Button>
             </div>
           </form>
         </CardContent>
       </Card>
-      <div className="text-balance text-center text-xs text-muted-foreground [&_a]:underline [&_a]:underline-offset-4 [&_a]:hover:text-primary  ">
-        By clicking continue, you agree to our <a href="#">Terms of Service</a>{' '}
-        and <a href="#">Privacy Policy</a>.
-      </div>
     </div>
   );
 }
