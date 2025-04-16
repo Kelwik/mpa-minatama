@@ -22,7 +22,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Box, FolderInput, FolderOutput } from 'lucide-react';
-import { ChartJenis } from '@/components/chart-jenis';
+import { ChartBulan } from '@/components/chart-jenis';
 
 export default function Dashboard() {
   return (
@@ -120,7 +120,8 @@ export default function Dashboard() {
               </CardFooter>
             </Card>
           </div>
-          <div className="bg-muted/50 min-h-[100vh] flex-1 rounded-xl md:min-h-min" />
+
+          <ChartBulan />
         </div>
       </SidebarInset>
     </SidebarProvider>

@@ -1,73 +1,70 @@
 'use client';
 
-import { Pie, PieChart } from 'recharts';
-
+import { TrendingUp } from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 import {
   Card,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
 import {
   ChartConfig,
   ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
 } from '@/components/ui/chart';
+
 const chartData = [
-  { browser: 'chrome', visitors: 275, fill: 'var(--color-chrome)' },
-  { browser: 'safari', visitors: 200, fill: 'var(--color-safari)' },
-  { browser: 'firefox', visitors: 187, fill: 'var(--color-firefox)' },
-  { browser: 'edge', visitors: 173, fill: 'var(--color-edge)' },
-  { browser: 'other', visitors: 90, fill: 'var(--color-other)' },
+  { month: 'January', Masuk: 186, Keluar: 80 },
+  { month: 'February', Masuk: 305, Keluar: 200 },
+  { month: 'March', Masuk: 237, Keluar: 120 },
+  { month: 'April', Masuk: 73, Keluar: 190 },
+  { month: 'May', Masuk: 209, Keluar: 130 },
+  { month: 'June', Masuk: 214, Keluar: 140 },
 ];
 
 const chartConfig = {
-  visitors: {
-    label: 'Visitors',
-  },
-  chrome: {
-    label: 'Chrome',
+  Masuk: {
+    label: 'Masuk',
     color: 'hsl(var(--chart-1))',
   },
-  safari: {
-    label: 'Safari',
+  Keluar: {
+    label: 'Keluar',
     color: 'hsl(var(--chart-2))',
-  },
-  firefox: {
-    label: 'Firefox',
-    color: 'hsl(var(--chart-3))',
-  },
-  edge: {
-    label: 'Edge',
-    color: 'hsl(var(--chart-4))',
-  },
-  other: {
-    label: 'Other',
-    color: 'hsl(var(--chart-5))',
   },
 };
 
-export function ChartJenis() {
+export function ChartBulan() {
   return (
-    <Card className="flex flex-col">
-      <CardHeader className="items-center pb-0">
-        <CardTitle>Pie Chart - Legend</CardTitle>
+    <Card>
+      <CardHeader>
+        <CardTitle>Bar Chart - Multiple</CardTitle>
         <CardDescription>January - June 2024</CardDescription>
       </CardHeader>
-      <CardContent className="flex-1 pb-0">
+      <CardContent>
         <ChartContainer
           config={chartConfig}
-          className="mx-auto aspect-square max-h-[300px]"
+          style={{ height: '300px', width: '100%' }}
         >
-          <PieChart>
-            <Pie data={chartData} dataKey="visitors" />
-            <ChartLegend
-              content={<ChartLegendContent nameKey="browser" />}
-              className="-translate-y-2 flex-wrap gap-2 [&>*]:basis-1/4 [&>*]:justify-center"
+          <BarChart accessibilityLayer data={chartData}>
+            <CartesianGrid vertical={false} />
+            <XAxis
+              dataKey="month"
+              tickLine={false}
+              tickMargin={10}
+              axisLine={false}
+              tickFormatter={(value) => value.slice(0, 3)}
             />
-          </PieChart>
+            <ChartTooltip
+              cursor={false}
+              content={<ChartTooltipContent indicator="dashed" />}
+            />
+            <Bar dataKey="Masuk" fill="#8884d8" radius={4} />
+            <Bar dataKey="Keluar" fill="#82ca9d" radius={4} />
+          </BarChart>
         </ChartContainer>
       </CardContent>
     </Card>
