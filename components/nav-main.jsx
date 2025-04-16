@@ -19,6 +19,7 @@ import {
   SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
 import Link from 'next/link';
+import { ModeToggle } from './theme-toggle';
 
 export function NavMain({ items }) {
   return (
@@ -59,6 +60,7 @@ export function NavMain({ items }) {
             </SidebarMenuItem>
           </Collapsible>
         ))}
+        <ModeToggle />
       </SidebarMenu>
     </SidebarGroup>
   );
