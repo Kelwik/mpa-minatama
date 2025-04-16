@@ -14,7 +14,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 
-export default function Page() {
+export default function StokPage() {
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -34,7 +34,7 @@ export default function Page() {
             <div className="bg-muted/50 aspect-video rounded-xl" />
             <div className="bg-muted/50 aspect-video rounded-xl" />
           </div>
-          <div className="bg-muted/50 min-h-[100vh] flex-1 rounded-xl md:min-h-min" />
+          <div className="bg-muted/50 min-h-[100vh] flex-1 rounded-xl md:min-h-min"></div>
         </div>
       </SidebarInset>
     </SidebarProvider>

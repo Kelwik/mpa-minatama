@@ -22,10 +22,10 @@ export async function login(formData) {
   }
 
   revalidatePath('/', 'layout');
-  redirect('/dashboard');
+  redirect('/');
 }
 
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
-  redirect('/login');
+  redirect('/');
 }
