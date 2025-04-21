@@ -381,7 +381,7 @@ export default function Dashboard() {
               <CardContent>
                 <div className="flex justify-center gap-12">
                   <p className="text-7xl dark:text-black">
-                    {outgoingThisMonth}
+                    {Math.abs(outgoingThisMonth)}
                   </p>
                   <FolderOutput size={66} className="dark:stroke-black" />
                 </div>
@@ -390,61 +390,6 @@ export default function Dashboard() {
                 <p className="dark:text-black text-4xl">Ekor</p>
               </CardFooter>
             </Card>
-          </div>
-
-          <div className="mt-8">
-            <h2 className="text-2xl font-bold mb-4">Stock by Lobster Type</h2>
-            {stockByType.length === 0 ? (
-              <p>
-                No inventory data available. Add lobsters via the Add Lobsters
-                page.
-              </p>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {stockByType.map((type) => (
-                  <Card key={type.lobster_type} className="p-4">
-                    <CardHeader>
-                      <CardTitle>{type.lobster_type}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p>Total: {type.total_quantity} Ekor</p>
-                      <Select
-                        onValueChange={() => {
-                          setSelectedType(type.lobster_type);
-                          if (!weightClasses[type.lobster_type]) {
-                            fetchWeightClasses(type.lobster_type);
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="mt-2">
-                          <SelectValue placeholder="Select Weight Class" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {weightClasses[type.lobster_type] === undefined ? (
-                            <SelectItem value="loading" disabled>
-                              Loading weight classes...
-                            </SelectItem>
-                          ) : weightClasses[type.lobster_type].length > 0 ? (
-                            weightClasses[type.lobster_type].map((wc) => (
-                              <SelectItem
-                                key={wc.weight_range}
-                                value={wc.weight_range}
-                              >
-                                {wc.weight_range}: {wc.quantity} Ekor
-                              </SelectItem>
-                            ))
-                          ) : (
-                            <SelectItem value="none" disabled>
-                              No weight classes available
-                            </SelectItem>
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
           </div>
 
           <div className="mt-8">
