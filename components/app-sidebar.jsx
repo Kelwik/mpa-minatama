@@ -47,8 +47,8 @@ const data = {
       icon: Bot,
     },
     {
-      title: 'Pengiriman',
-      url: '/login',
+      title: 'Transaksi',
+      url: '/transaksi',
       icon: BookOpen,
     },
   ],
