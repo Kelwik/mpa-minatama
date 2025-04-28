@@ -97,7 +97,7 @@ export default function Transaksi() {
             t.transaction_type || 'Unknown',
             t.lobster_types?.name || 'N/A',
             t.weight_classes?.weight_range || 'N/A',
-            `${t.quantity ?? 0} Ekor`,
+            `${Math.abs(t.quantity) ?? 0} Ekor`,
             getNotesDisplay(t.notes),
             t.transaction_date
               ? format(new Date(t.transaction_date), 'dd MMMM yyyy', {
@@ -274,7 +274,7 @@ export default function Transaksi() {
                         t.quantity < 0 ? 'text-red-500' : 'text-green-500'
                       }
                     >
-                      {t.quantity ?? 0} Ekor
+                      {Math.abs(t.quantity) ?? 0} Ekor
                     </TableCell>
                     <TableCell>{getNotesDisplay(t.notes)}</TableCell>
                     <TableCell className="text-right">
