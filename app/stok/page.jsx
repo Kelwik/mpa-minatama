@@ -26,6 +26,13 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { AppSidebar } from '@/components/app-sidebar';
 import { useForm } from 'react-hook-form';
@@ -51,6 +58,7 @@ export default function Stock() {
   const [error, setError] = useState(null);
   const [formError, setFormError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Form setup
   const form = useForm({
@@ -224,13 +232,14 @@ export default function Stock() {
         await fetchWeightClasses(type.lobster_type);
       }
       form.reset();
+      setIsModalOpen(false); // Close modal on success
       toast.success('Transaction Successful', {
         description: `${quantity} ${lobsterType} (${weightClass}) ${
           transactionType === 'ADD' ? 'added' : 'distributed'
         }.`,
         action: {
           label: 'View Transactions',
-          onClick: () => (window.location.href = '/transactions'),
+          onClick: () => (window.location.href = '/transaksi'),
         },
       });
     } catch (error) {
@@ -387,7 +396,153 @@ export default function Stock() {
           </div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-          <h2 className="text-2xl font-bold mb-4">Stock Management</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold">Stock Management</h2>
+            <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+              <DialogTrigger asChild>
+                <Button>Add Transaction</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Transaction</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form
+                    onSubmit={form.handleSubmit(submitTransaction)}
+                    className="space-y-4"
+                  >
+                    <FormField
+                      control={form.control}
+                      name="lobsterType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Lobster Type</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select lobster type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {lobsterTypes.map((type) => (
+                                <SelectItem key={type.id} value={type.name}>
+                                  {type.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="weightClass"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Weight Class</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select weight class" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {allWeightClasses.map((wc) => (
+                                <SelectItem key={wc.id} value={wc.weight_range}>
+                                  {wc.weight_range}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="quantity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Quantity</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              {...field}
+                              onChange={(e) =>
+                                field.onChange(parseInt(e.target.value))
+                              }
+                              min="1"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="transactionType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Transaction Type</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select transaction type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="ADD">Add</SelectItem>
+                              <SelectItem value="DISTRIBUTE">
+                                Distribute
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="note"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Note (Optional)</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {formError && <p className="text-red-500">{formError}</p>}
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setIsModalOpen(false)}
+                        disabled={isSubmitting}
+                      >
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={isSubmitting}>
+                        {isSubmitting ? 'Submitting...' : 'Submit Transaction'}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
 
           {/* Stock by Type */}
           <div className="mb-8">
@@ -396,7 +551,8 @@ export default function Stock() {
             </h3>
             {stockByType.length === 0 ? (
               <p>
-                No inventory data available. Add lobsters using the form below.
+                No inventory data available. Add lobsters using the button
+                above.
               </p>
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
@@ -425,133 +581,6 @@ export default function Stock() {
                 ))}
               </div>
             )}
-          </div>
-
-          {/* Transaction Form */}
-          <div>
-            <h3 className="text-xl font-semibold mb-4">Add Transaction</h3>
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(submitTransaction)}
-                className="space-y-4 max-w-md"
-              >
-                <FormField
-                  control={form.control}
-                  name="lobsterType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Lobster Type</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select lobster type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {lobsterTypes.map((type) => (
-                            <SelectItem key={type.id} value={type.name}>
-                              {type.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="weightClass"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Weight Class</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select weight class" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {allWeightClasses.map((wc) => (
-                            <SelectItem key={wc.id} value={wc.weight_range}>
-                              {wc.weight_range}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="quantity"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Quantity</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          {...field}
-                          onChange={(e) =>
-                            field.onChange(parseInt(e.target.value))
-                          }
-                          min="1"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="transactionType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Transaction Type</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select transaction type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="ADD">Add</SelectItem>
-                          <SelectItem value="DISTRIBUTE">Distribute</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="note"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Note (Optional)</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {formError && <p className="text-red-500">{formError}</p>}
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? 'Submitting...' : 'Submit Transaction'}
-                </Button>
-              </form>
-            </Form>
           </div>
         </div>
       </SidebarInset>
