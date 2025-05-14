@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
   SidebarInset,
@@ -30,6 +30,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Cache weight classes to avoid repeated queries
+  const cachedWeightClasses = useRef(null);
+
   // Check authentication
   useEffect(() => {
     const fetchSession = async () => {
@@ -48,19 +51,15 @@ export default function Dashboard() {
       }
     );
 
-    return () => {
-      authListener.subscription?.unsubscribe();
-    };
+    return () => authListener.subscription?.unsubscribe();
   }, []);
 
-  // Fetch weight classes for a type
-  let cachedWeightClasses = null;
-
+  // Fetch weight classes for a lobster type
   const fetchWeightClasses = async (typeName) => {
     try {
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Request timed out')), 10000);
-      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timed out')), 10000)
+      );
 
       const result = await Promise.race([
         (async () => {
@@ -69,31 +68,30 @@ export default function Dashboard() {
             .select('id')
             .eq('name', typeName)
             .single();
-          if (typeError) throw typeError;
-          if (!typeData) return [];
+          if (typeError || !typeData) return [];
 
           const { data: inventoryData, error: inventoryError } = await supabase
             .from('inventory')
             .select(
               `
-            weight_class_id,
-            quantity,
-            weight_classes (weight_range)
-          `
+              weight_class_id,
+              quantity,
+              weight_classes (weight_range)
+            `
             )
             .eq('type_id', typeData.id);
           if (inventoryError) throw inventoryError;
 
           let weightClassData = inventoryData || [];
           if (weightClassData.length === 0) {
-            if (!cachedWeightClasses) {
+            if (!cachedWeightClasses.current) {
               const { data: allWeightClasses, error: wcError } = await supabase
                 .from('weight_classes')
                 .select('id, weight_range');
               if (wcError) throw wcError;
-              cachedWeightClasses = allWeightClasses;
+              cachedWeightClasses.current = allWeightClasses;
             }
-            weightClassData = cachedWeightClasses.map((wc) => ({
+            weightClassData = cachedWeightClasses.current.map((wc) => ({
               weight_class_id: wc.id,
               quantity: 0,
               weight_classes: { weight_range: wc.weight_range },
@@ -113,12 +111,6 @@ export default function Dashboard() {
         [typeName]: result,
       }));
     } catch (error) {
-      console.error('fetchWeightClasses error:', error);
-      // Retry once
-      if (error.message === 'Request timed out') {
-        console.log('Retrying fetchWeightClasses for', typeName);
-        return fetchWeightClasses(typeName);
-      }
       setWeightClasses((prev) => ({
         ...prev,
         [typeName]: [],
@@ -126,42 +118,29 @@ export default function Dashboard() {
     }
   };
 
-  // Fetch dashboard data and monthly transactions
+  // Fetch all dashboard data
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      console.log('Fetching data for dashboard...');
 
-      // Fetch total stock
-      const { data: inventoryData, error: inventoryError } = await supabase
-        .from('inventory')
-        .select('quantity');
-      if (inventoryError) {
-        console.error('Inventory fetch error:', inventoryError);
-        throw inventoryError;
-      }
-      console.log('Inventory data:', inventoryData);
+      // Fetch inventory and stock by type in one query
+      const { data: inventoryData, error: inventoryError } =
+        await supabase.from('inventory').select(`
+          quantity,
+          type_id,
+          lobster_types (name)
+        `);
+      if (inventoryError) throw inventoryError;
+
+      // Calculate total stock
       const total = inventoryData.reduce(
         (sum, row) => sum + (row.quantity || 0),
         0
       );
       setTotalStock(total);
 
-      // Fetch stock by type
-      const { data: stockByTypeData, error: typeError } = await supabase.from(
-        'inventory'
-      ).select(`
-          type_id,
-          quantity,
-          lobster_types (name)
-        `);
-      if (typeError) {
-        console.error('Stock by type fetch error:', typeError);
-        throw typeError;
-      }
-      console.log('Stock by type data:', stockByTypeData);
-
-      const grouped = stockByTypeData.reduce((acc, row) => {
+      // Group stock by type
+      const grouped = inventoryData.reduce((acc, row) => {
         const typeName = row.lobster_types?.name;
         if (typeName) {
           acc[typeName] = (acc[typeName] || 0) + (row.quantity || 0);
@@ -176,10 +155,10 @@ export default function Dashboard() {
       );
       setStockByType(stockByTypeArray);
 
-      // Preload weight classes
-      for (const type of stockByTypeArray) {
-        await fetchWeightClasses(type.lobster_type);
-      }
+      // Fetch weight classes for each type
+      await Promise.all(
+        stockByTypeArray.map((type) => fetchWeightClasses(type.lobster_type))
+      );
 
       // Fetch this month's transactions
       const now = new Date();
@@ -192,14 +171,7 @@ export default function Dashboard() {
           .select('quantity, transaction_type, transaction_date')
           .gte('transaction_date', startOfMonth.toISOString())
           .lte('transaction_date', endOfMonth.toISOString());
-      if (transactionsError) {
-        console.error(
-          'This month transactions fetch error:',
-          transactionsError
-        );
-        throw transactionsError;
-      }
-      console.log('This month transactions:', transactionsData);
+      if (transactionsError) throw transactionsError;
 
       const incoming = transactionsData
         .filter((t) => t.transaction_type === 'ADD')
@@ -211,7 +183,7 @@ export default function Dashboard() {
       setIncomingThisMonth(incoming);
       setOutgoingThisMonth(outgoing);
 
-      // Fetch monthly transaction data (last 6 months)
+      // Fetch last 6 months' transactions
       const sixMonthsAgo = new Date();
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
       sixMonthsAgo.setDate(1);
@@ -220,24 +192,18 @@ export default function Dashboard() {
         .from('transactions')
         .select('quantity, transaction_type, transaction_date')
         .gte('transaction_date', sixMonthsAgo.toISOString());
-      if (monthlyError) {
-        console.error('Monthly transactions fetch error:', monthlyError);
-        throw monthlyError;
-      }
-      console.log('Monthly transactions:', monthlyData);
+      if (monthlyError) throw monthlyError;
 
-      // Process monthly data
-      const months = [];
-      for (let i = 0; i < 6; i++) {
+      // Process monthly chart data
+      const months = Array.from({ length: 6 }, (_, i) => {
         const date = new Date();
         date.setMonth(date.getMonth() - i);
-        months.push({
+        return {
           month: date.toLocaleString('en-US', { month: 'long' }),
           year: date.getFullYear(),
           monthIndex: date.getMonth(),
-        });
-      }
-      months.reverse(); // Oldest to newest
+        };
+      }).reverse();
 
       const monthlyChartData = months.map(({ month, year, monthIndex }) => {
         const monthTransactions = monthlyData.filter((t) => {
@@ -254,18 +220,12 @@ export default function Dashboard() {
             .reduce((sum, t) => sum + (t.quantity || 0), 0)
         );
 
-        return {
-          month,
-          Masuk: incoming,
-          Keluar: outgoing,
-        };
+        return { month, Masuk: incoming, Keluar: outgoing };
       });
 
-      console.log('Chart data:', monthlyChartData);
       setChartData(monthlyChartData);
       setError(null);
     } catch (error) {
-      console.error('fetchDashboardData error:', error);
       setError(error.message);
     } finally {
       setLoading(false);
@@ -282,10 +242,7 @@ export default function Dashboard() {
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'inventory' },
-          () => {
-            console.log('Inventory updated, refetching...');
-            fetchDashboardData();
-          }
+          fetchDashboardData
         )
         .subscribe();
 
@@ -294,10 +251,7 @@ export default function Dashboard() {
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'transactions' },
-          () => {
-            console.log('Transactions inserted, refetching...');
-            fetchDashboardData();
-          }
+          fetchDashboardData
         )
         .subscribe();
 
@@ -308,7 +262,7 @@ export default function Dashboard() {
     }
   }, [user]);
 
-  // Render loading or error states
+  // Render loading, unauthorized, or error states
   if (loading) {
     return (
       <SidebarProvider>
@@ -317,10 +271,7 @@ export default function Dashboard() {
           <header className="flex h-16 shrink-0 items-center gap-2">
             <div className="flex items-center gap-2 px-4">
               <SidebarTrigger className="-ml-1" />
-              <Separator
-                orientation="vertical"
-                className="mr-2 data-[orientation=vertical]:h-4"
-              />
+              <Separator orientation="vertical" className="mr-2 h-4" />
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
@@ -339,10 +290,7 @@ export default function Dashboard() {
           <header className="flex h-16 shrink-0 items-center gap-2">
             <div className="flex items-center gap-2 px-4">
               <SidebarTrigger className="-ml-1" />
-              <Separator
-                orientation="vertical"
-                className="mr-2 data-[orientation=vertical]:h-4"
-              />
+              <Separator orientation="vertical" className="mr-2 h-4" />
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
@@ -361,10 +309,7 @@ export default function Dashboard() {
           <header className="flex h-16 shrink-0 items-center gap-2">
             <div className="flex items-center gap-2 px-4">
               <SidebarTrigger className="-ml-1" />
-              <Separator
-                orientation="vertical"
-                className="mr-2 data-[orientation=vertical]:h-4"
-              />
+              <Separator orientation="vertical" className="mr-2 h-4" />
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
@@ -382,10 +327,7 @@ export default function Dashboard() {
         <header className="flex h-16 shrink-0 items-center gap-2">
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1" />
-            <Separator
-              orientation="vertical"
-              className="mr-2 data-[orientation=vertical]:h-4"
-            />
+            <Separator orientation="vertical" className="mr-2 h-4" />
           </div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
@@ -471,7 +413,6 @@ export default function Dashboard() {
               </CardFooter>
             </Card>
           </div>
-
           <div className="mt-8">
             <h2 className="text-2xl font-bold mb-4">Monthly Trends</h2>
             <ChartBulan chartData={chartData} />
