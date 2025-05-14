@@ -1,7 +1,7 @@
 'use client';
 
 import { TrendingUp } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import {
   Card,
   CardContent,
@@ -17,37 +17,32 @@ import {
   ChartTooltipContent,
 } from '@/components/ui/chart';
 
-const chartData = [
-  { month: 'January', Masuk: 186, Keluar: 80 },
-  { month: 'February', Masuk: 305, Keluar: 200 },
-  { month: 'March', Masuk: 237, Keluar: 120 },
-  { month: 'April', Masuk: 73, Keluar: 190 },
-  { month: 'May', Masuk: 209, Keluar: 130 },
-  { month: 'June', Masuk: 214, Keluar: 140 },
-];
-
 const chartConfig = {
   Masuk: {
-    label: 'Masuk',
-    color: 'hsl(var(--chart-1))',
+    label: 'Incoming',
+    color: '#8884d8',
   },
   Keluar: {
-    label: 'Keluar',
-    color: 'hsl(var(--chart-2))',
+    label: 'Outgoing',
+    color: '#82ca9d',
   },
 };
 
-export function ChartBulan() {
+export function ChartBulan({ chartData }) {
+  const currentYear = new Date().getFullYear();
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Bar Chart - Multiple</CardTitle>
-        <CardDescription>January - June 2024</CardDescription>
+        <CardTitle>Lobster Transaction Trends</CardTitle>
+        <CardDescription>
+          Monthly Incoming and Outgoing {currentYear}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <ChartContainer
           config={chartConfig}
-          style={{ height: '300px', width: '100%' }}
+          style={{ height: '50vh', width: '100%' }}
         >
           <BarChart accessibilityLayer data={chartData}>
             <CartesianGrid vertical={false} />
@@ -58,15 +53,25 @@ export function ChartBulan() {
               axisLine={false}
               tickFormatter={(value) => value.slice(0, 3)}
             />
+            <YAxis />
             <ChartTooltip
               cursor={false}
               content={<ChartTooltipContent indicator="dashed" />}
             />
-            <Bar dataKey="Masuk" fill="#8884d8" radius={4} />
-            <Bar dataKey="Keluar" fill="#82ca9d" radius={4} />
+            <Bar dataKey="Masuk" fill={chartConfig.Masuk.color} radius={4} />
+            <Bar dataKey="Keluar" fill={chartConfig.Keluar.color} radius={4} />
           </BarChart>
         </ChartContainer>
       </CardContent>
+      <CardFooter className="flex-col items-start gap-2 text-sm">
+        <div className="flex gap-2 font-medium leading-none">
+          Visualizing monthly lobster transactions{' '}
+          <TrendingUp className="h-4 w-4" />
+        </div>
+        <div className="leading-none text-muted-foreground">
+          Showing incoming (ADD) and outgoing (DISTRIBUTE) transactions
+        </div>
+      </CardFooter>
     </Card>
   );
 }

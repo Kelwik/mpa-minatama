@@ -18,13 +18,6 @@ import {
 import { Box, FolderInput, FolderOutput } from 'lucide-react';
 import { ChartBulan } from '@/components/chart-jenis';
 import { AppSidebar } from '@/components/app-sidebar';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
@@ -33,7 +26,7 @@ export default function Dashboard() {
   const [outgoingThisMonth, setOutgoingThisMonth] = useState(0);
   const [stockByType, setStockByType] = useState([]);
   const [weightClasses, setWeightClasses] = useState({});
-  const [selectedType, setSelectedType] = useState('');
+  const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -61,10 +54,12 @@ export default function Dashboard() {
   }, []);
 
   // Fetch weight classes for a type
+  let cachedWeightClasses = null;
+
   const fetchWeightClasses = async (typeName) => {
     try {
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Request timed out')), 5000);
+        setTimeout(() => reject(new Error('Request timed out')), 10000);
       });
 
       const result = await Promise.race([
@@ -81,21 +76,24 @@ export default function Dashboard() {
             .from('inventory')
             .select(
               `
-              weight_class_id,
-              quantity,
-              weight_classes (weight_range)
-            `
+            weight_class_id,
+            quantity,
+            weight_classes (weight_range)
+          `
             )
             .eq('type_id', typeData.id);
           if (inventoryError) throw inventoryError;
 
           let weightClassData = inventoryData || [];
           if (weightClassData.length === 0) {
-            const { data: allWeightClasses, error: wcError } = await supabase
-              .from('weight_classes')
-              .select('id, weight_range');
-            if (wcError) throw wcError;
-            weightClassData = allWeightClasses.map((wc) => ({
+            if (!cachedWeightClasses) {
+              const { data: allWeightClasses, error: wcError } = await supabase
+                .from('weight_classes')
+                .select('id, weight_range');
+              if (wcError) throw wcError;
+              cachedWeightClasses = allWeightClasses;
+            }
+            weightClassData = cachedWeightClasses.map((wc) => ({
               weight_class_id: wc.id,
               quantity: 0,
               weight_classes: { weight_range: wc.weight_range },
@@ -115,6 +113,12 @@ export default function Dashboard() {
         [typeName]: result,
       }));
     } catch (error) {
+      console.error('fetchWeightClasses error:', error);
+      // Retry once
+      if (error.message === 'Request timed out') {
+        console.log('Retrying fetchWeightClasses for', typeName);
+        return fetchWeightClasses(typeName);
+      }
       setWeightClasses((prev) => ({
         ...prev,
         [typeName]: [],
@@ -122,20 +126,28 @@ export default function Dashboard() {
     }
   };
 
-  // Fetch dashboard data and preload weight classes
+  // Fetch dashboard data and monthly transactions
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      console.log('Fetching data for dashboard...');
+
+      // Fetch total stock
       const { data: inventoryData, error: inventoryError } = await supabase
         .from('inventory')
         .select('quantity');
-      if (inventoryError) throw inventoryError;
+      if (inventoryError) {
+        console.error('Inventory fetch error:', inventoryError);
+        throw inventoryError;
+      }
+      console.log('Inventory data:', inventoryData);
       const total = inventoryData.reduce(
         (sum, row) => sum + (row.quantity || 0),
         0
       );
       setTotalStock(total);
 
+      // Fetch stock by type
       const { data: stockByTypeData, error: typeError } = await supabase.from(
         'inventory'
       ).select(`
@@ -143,7 +155,11 @@ export default function Dashboard() {
           quantity,
           lobster_types (name)
         `);
-      if (typeError) throw typeError;
+      if (typeError) {
+        console.error('Stock by type fetch error:', typeError);
+        throw typeError;
+      }
+      console.log('Stock by type data:', stockByTypeData);
 
       const grouped = stockByTypeData.reduce((acc, row) => {
         const typeName = row.lobster_types?.name;
@@ -165,6 +181,7 @@ export default function Dashboard() {
         await fetchWeightClasses(type.lobster_type);
       }
 
+      // Fetch this month's transactions
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -175,7 +192,14 @@ export default function Dashboard() {
           .select('quantity, transaction_type, transaction_date')
           .gte('transaction_date', startOfMonth.toISOString())
           .lte('transaction_date', endOfMonth.toISOString());
-      if (transactionsError) throw transactionsError;
+      if (transactionsError) {
+        console.error(
+          'This month transactions fetch error:',
+          transactionsError
+        );
+        throw transactionsError;
+      }
+      console.log('This month transactions:', transactionsData);
 
       const incoming = transactionsData
         .filter((t) => t.transaction_type === 'ADD')
@@ -186,8 +210,62 @@ export default function Dashboard() {
 
       setIncomingThisMonth(incoming);
       setOutgoingThisMonth(outgoing);
+
+      // Fetch monthly transaction data (last 6 months)
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+      sixMonthsAgo.setDate(1);
+
+      const { data: monthlyData, error: monthlyError } = await supabase
+        .from('transactions')
+        .select('quantity, transaction_type, transaction_date')
+        .gte('transaction_date', sixMonthsAgo.toISOString());
+      if (monthlyError) {
+        console.error('Monthly transactions fetch error:', monthlyError);
+        throw monthlyError;
+      }
+      console.log('Monthly transactions:', monthlyData);
+
+      // Process monthly data
+      const months = [];
+      for (let i = 0; i < 6; i++) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+        months.push({
+          month: date.toLocaleString('en-US', { month: 'long' }),
+          year: date.getFullYear(),
+          monthIndex: date.getMonth(),
+        });
+      }
+      months.reverse(); // Oldest to newest
+
+      const monthlyChartData = months.map(({ month, year, monthIndex }) => {
+        const monthTransactions = monthlyData.filter((t) => {
+          const date = new Date(t.transaction_date);
+          return date.getFullYear() === year && date.getMonth() === monthIndex;
+        });
+
+        const incoming = monthTransactions
+          .filter((t) => t.transaction_type === 'ADD')
+          .reduce((sum, t) => sum + (t.quantity || 0), 0);
+        const outgoing = Math.abs(
+          monthTransactions
+            .filter((t) => t.transaction_type === 'DISTRIBUTE')
+            .reduce((sum, t) => sum + (t.quantity || 0), 0)
+        );
+
+        return {
+          month,
+          Masuk: incoming,
+          Keluar: outgoing,
+        };
+      });
+
+      console.log('Chart data:', monthlyChartData);
+      setChartData(monthlyChartData);
       setError(null);
     } catch (error) {
+      console.error('fetchDashboardData error:', error);
       setError(error.message);
     } finally {
       setLoading(false);
@@ -205,6 +283,7 @@ export default function Dashboard() {
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'inventory' },
           () => {
+            console.log('Inventory updated, refetching...');
             fetchDashboardData();
           }
         )
@@ -216,6 +295,7 @@ export default function Dashboard() {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'transactions' },
           () => {
+            console.log('Transactions inserted, refetching...');
             fetchDashboardData();
           }
         )
@@ -394,14 +474,7 @@ export default function Dashboard() {
 
           <div className="mt-8">
             <h2 className="text-2xl font-bold mb-4">Monthly Trends</h2>
-            <ChartBulan
-              data={{
-                incoming: incomingThisMonth,
-                outgoing: outgoingThisMonth,
-                total: totalStock,
-                stockByType,
-              }}
-            />
+            <ChartBulan chartData={chartData} />
           </div>
         </div>
       </SidebarInset>
