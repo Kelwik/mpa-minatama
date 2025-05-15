@@ -16,7 +16,8 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Box, FolderInput, FolderOutput } from 'lucide-react';
-import { ChartBulan } from '@/components/chart-jenis';
+import { ChartBulan } from '@/components/chart-bulan';
+import { ChartJenis } from '@/components/chart-jenis';
 import { AppSidebar } from '@/components/app-sidebar';
 
 export default function Dashboard() {
@@ -27,6 +28,7 @@ export default function Dashboard() {
   const [stockByType, setStockByType] = useState([]);
   const [weightClasses, setWeightClasses] = useState({});
   const [chartData, setChartData] = useState([]);
+  const [pieChartData, setPieChartData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -123,7 +125,7 @@ export default function Dashboard() {
     try {
       setLoading(true);
 
-      // Fetch inventory and stock by type in one query
+      // Fetch inventory and stock by type
       const { data: inventoryData, error: inventoryError } =
         await supabase.from('inventory').select(`
           quantity,
@@ -168,7 +170,9 @@ export default function Dashboard() {
       const { data: transactionsData, error: transactionsError } =
         await supabase
           .from('transactions')
-          .select('quantity, transaction_type, transaction_date')
+          .select(
+            'quantity, transaction_type, transaction_date, type_id, lobster_types (name)'
+          )
           .gte('transaction_date', startOfMonth.toISOString())
           .lte('transaction_date', endOfMonth.toISOString());
       if (transactionsError) throw transactionsError;
@@ -176,12 +180,38 @@ export default function Dashboard() {
       const incoming = transactionsData
         .filter((t) => t.transaction_type === 'ADD')
         .reduce((sum, t) => sum + (t.quantity || 0), 0);
-      const outgoing = transactionsData
-        .filter((t) => t.transaction_type === 'DISTRIBUTE')
-        .reduce((sum, t) => sum + (t.quantity || 0), 0);
+      const outgoing = Math.abs(
+        transactionsData
+          .filter((t) =>
+            ['DISTRIBUTE', 'DEATH', 'DAMAGED'].includes(t.transaction_type)
+          )
+          .reduce((sum, t) => sum + (t.quantity || 0), 0)
+      );
 
       setIncomingThisMonth(incoming);
       setOutgoingThisMonth(outgoing);
+
+      // Fetch pie chart data (all-time distributions by lobster type)
+      const { data: pieData, error: pieError } = await supabase
+        .from('transactions')
+        .select('quantity, transaction_type, type_id, lobster_types (name)')
+        .in('transaction_type', ['DISTRIBUTE', 'DEATH', 'DAMAGED']);
+      if (pieError) throw pieError;
+
+      const pieGrouped = pieData.reduce((acc, row) => {
+        const typeName = row.lobster_types?.name;
+        if (typeName) {
+          acc[typeName] = (acc[typeName] || 0) + Math.abs(row.quantity || 0);
+        }
+        return acc;
+      }, {});
+      const pieChartArray = Object.entries(pieGrouped).map(
+        ([lobster_type, quantity]) => ({
+          lobster_type,
+          quantity,
+        })
+      );
+      setPieChartData(pieChartArray);
 
       // Fetch last 6 months' transactions
       const sixMonthsAgo = new Date();
@@ -216,7 +246,9 @@ export default function Dashboard() {
           .reduce((sum, t) => sum + (t.quantity || 0), 0);
         const outgoing = Math.abs(
           monthTransactions
-            .filter((t) => t.transaction_type === 'DISTRIBUTE')
+            .filter((t) =>
+              ['DISTRIBUTE', 'DEATH', 'DAMAGED'].includes(t.transaction_type)
+            )
             .reduce((sum, t) => sum + (t.quantity || 0), 0)
         );
 
@@ -416,6 +448,12 @@ export default function Dashboard() {
           <div className="mt-8">
             <h2 className="text-2xl font-bold mb-4">Monthly Trends</h2>
             <ChartBulan chartData={chartData} />
+          </div>
+          <div className="mt-8">
+            <h2 className="text-2xl font-bold mb-4">
+              Distribution by Lobster Type
+            </h2>
+            <ChartJenis chartData={pieChartData} />
           </div>
         </div>
       </SidebarInset>

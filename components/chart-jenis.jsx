@@ -1,77 +1,77 @@
 'use client';
 
-import { TrendingUp } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
-  ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from '@/components/ui/chart';
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Legend,
+  Tooltip,
+} from 'recharts';
 
-const chartConfig = {
-  Masuk: {
-    label: 'Incoming',
-    color: '#8884d8',
-  },
-  Keluar: {
-    label: 'Outgoing',
-    color: '#82ca9d',
-  },
-};
+const COLORS = [
+  '#0088FE',
+  '#00C49F',
+  '#FFBB28',
+  '#FF8042',
+  '#8884D8',
+  '#82ca9d',
+];
 
-export function ChartBulan({ chartData }) {
-  const currentYear = new Date().getFullYear();
-
+const ChartJenis = ({ chartData }) => {
   return (
-    <Card>
+    <Card className="w-full">
       <CardHeader>
-        <CardTitle>Lobster Transaction Trends</CardTitle>
-        <CardDescription>
-          Monthly Incoming and Outgoing {currentYear}
-        </CardDescription>
+        <CardTitle>Distribution by Lobster Type</CardTitle>
       </CardHeader>
       <CardContent>
-        <ChartContainer
-          config={chartConfig}
-          style={{ height: '50vh', width: '100%' }}
-        >
-          <BarChart accessibilityLayer data={chartData}>
-            <CartesianGrid vertical={false} />
-            <XAxis
-              dataKey="month"
-              tickLine={false}
-              tickMargin={10}
-              axisLine={false}
-              tickFormatter={(value) => value.slice(0, 3)}
-            />
-            <YAxis />
-            <ChartTooltip
-              cursor={false}
-              content={<ChartTooltipContent indicator="dashed" />}
-            />
-            <Bar dataKey="Masuk" fill={chartConfig.Masuk.color} radius={4} />
-            <Bar dataKey="Keluar" fill={chartConfig.Keluar.color} radius={4} />
-          </BarChart>
-        </ChartContainer>
+        {chartData.length === 0 ? (
+          <p className="text-center text-gray-500">
+            No distribution data available
+          </p>
+        ) : (
+          <div className="h-[400px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  dataKey="quantity"
+                  nameKey="lobster_type"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={120}
+                  fill="#8884d8"
+                  label
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value, name) => [`${value} Ekor`, name]}
+                  contentStyle={{
+                    backgroundColor: '#fff',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                  }}
+                />
+                <Legend
+                  layout="vertical"
+                  align="right"
+                  verticalAlign="middle"
+                  wrapperStyle={{ paddingLeft: '20px' }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </CardContent>
-      <CardFooter className="flex-col items-start gap-2 text-sm">
-        <div className="flex gap-2 font-medium leading-none">
-          Visualizing monthly lobster transactions{' '}
-          <TrendingUp className="h-4 w-4" />
-        </div>
-        <div className="leading-none text-muted-foreground">
-          Showing incoming (ADD) and outgoing (DISTRIBUTE) transactions
-        </div>
-      </CardFooter>
     </Card>
   );
-}
+};
+
+export { ChartJenis };
