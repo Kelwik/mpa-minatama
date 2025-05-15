@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
@@ -43,6 +44,7 @@ export default function Transaksi() {
   const [selectedLobsterType, setSelectedLobsterType] = useState('all');
   const [selectedTransactionType, setSelectedTransactionType] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const transactionTypes = ['all', 'ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED'];
@@ -81,6 +83,7 @@ export default function Transaksi() {
   // Fetch transactions with filters
   const fetchTransactions = useCallback(async () => {
     try {
+      setTableLoading(true);
       const query = supabase
         .from('transactions')
         .select(
@@ -119,14 +122,23 @@ export default function Transaksi() {
       toast.error('Failed to load transactions', {
         description: error.message,
       });
+    } finally {
+      setTableLoading(false);
     }
   }, [startDate, endDate, selectedLobsterType, selectedTransactionType]);
 
   // Debounced fetch
   const debouncedFetchTransactions = useCallback(
-    debounce(fetchTransactions, 300),
+    debounce(fetchTransactions, 300, { leading: false, trailing: true }),
     [fetchTransactions]
   );
+
+  // Clean up debounce on component unmount
+  useEffect(() => {
+    return () => {
+      debouncedFetchTransactions.cancel();
+    };
+  }, [debouncedFetchTransactions]);
 
   // Normalize notes
   const getNotesDisplay = (notes) => {
@@ -245,7 +257,8 @@ export default function Transaksi() {
     setEndDate('');
     setSelectedLobsterType('all');
     setSelectedTransactionType('all');
-    debouncedFetchTransactions();
+    debouncedFetchTransactions.cancel(); // Cancel any pending debounced fetch
+    fetchTransactions(); // Fetch immediately with reset filters
   };
 
   // Initial fetch and real-time subscription
@@ -253,8 +266,13 @@ export default function Transaksi() {
     if (user) {
       const initialize = async () => {
         setLoading(true);
-        await Promise.all([fetchTransactions(), fetchLobsterTypes()]);
-        setLoading(false);
+        setTableLoading(true);
+        try {
+          await Promise.all([fetchTransactions(), fetchLobsterTypes()]);
+        } finally {
+          setLoading(false);
+          setTableLoading(false);
+        }
       };
       initialize();
 
@@ -421,7 +439,31 @@ export default function Transaksi() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {transactions.length === 0 ? (
+              {tableLoading ? (
+                // Show 3 skeleton rows to mimic loading
+                Array.from({ length: 3 }).map((_, index) => (
+                  <TableRow key={`skeleton-${index}`}>
+                    <TableCell>
+                      <Skeleton className="h-4 w-[80px]" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-[100px]" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-[120px]" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-[80px]" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-[150px]" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-[100px] ml-auto" />
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : transactions.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center">
                     No transactions found.
