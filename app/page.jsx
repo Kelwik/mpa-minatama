@@ -424,13 +424,14 @@ export default function Dashboard() {
               </CardFooter>
             </Card>
           </div>
+
           <div className="mt-8">
-            <h2 className="text-2xl font-bold mb-4">Monthly Trends</h2>
+            <h2 className="text-2xl font-bold mb-4">Tren Bulanan</h2>
             <ChartBulan chartData={memoizedChartData} />
           </div>
           <div className="mt-8">
             <h2 className="text-2xl font-bold mb-4">
-              Distribution by Lobster Type
+              Distribusi Berdasarkan Jenis Lobster
             </h2>
             <ChartJenis chartData={memoizedPieChartData} />
           </div>

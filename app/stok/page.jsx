@@ -39,7 +39,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { AppSidebar } from '@/components/app-sidebar';
-
 import debounce from 'lodash/debounce';
 
 // Format current date/time for datetime-local
@@ -56,17 +55,17 @@ const getCurrentDateTime = () => {
 // Form schema
 const formSchema = z
   .object({
-    lobsterType: z.string().min(1, 'Lobster type is required'),
-    weightClass: z.string().min(1, 'Weight class is required'),
-    quantity: z.number().min(1, 'Quantity must be at least 1').int(),
+    lobsterType: z.string().min(1, 'Jenis lobster wajib diisi'),
+    weightClass: z.string().min(1, 'Kelas berat wajib diisi'),
+    quantity: z.number().min(1, 'Jumlah harus minimal 1').int(),
     transactionType: z.enum(['ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED']),
     destination: z.string().optional(),
     note: z.string().optional(),
     transactionDate: z
       .string()
-      .min(1, 'Transaction date is required')
+      .min(1, 'Tanggal transaksi wajib diisi')
       .refine((val) => !isNaN(Date.parse(val)), {
-        message: 'Invalid date format',
+        message: 'Format tanggal tidak valid',
       }),
   })
   .refine(
@@ -77,7 +76,7 @@ const formSchema = z
       return true;
     },
     {
-      message: 'Destination is required for this transaction type',
+      message: 'Tujuan wajib diisi untuk jenis transaksi ini',
       path: ['destination'],
     }
   );
@@ -151,7 +150,7 @@ export default function Stock() {
     async (types) => {
       try {
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Request timed out')), 3000)
+          setTimeout(() => reject(new Error('Permintaan timeout')), 3000)
         );
 
         const { data: inventoryData, error } = await Promise.race([
@@ -181,7 +180,8 @@ export default function Stock() {
           acc[type.lobster_type] = inventoryData
             .filter((row) => row.type_id === typeId)
             .map((row) => ({
-              weight_range: row.weight_classes?.weight_range || 'Unknown',
+              weight_range:
+                row.weight_classes?.weight_range || 'Tidak Diketahui',
               quantity: row.quantity || 0,
             }));
           return acc;
@@ -230,7 +230,7 @@ export default function Stock() {
           .single(),
       ]);
       if (typeData.error || weightClassData.error)
-        throw new Error('Invalid type or weight class');
+        throw new Error('Jenis atau kelas berat tidak valid');
 
       const { data: inventoryData, error } = await supabase
         .from('inventory')
@@ -282,7 +282,7 @@ export default function Stock() {
             .single(),
         ]);
         if (typeData.error || weightClassData.error)
-          throw new Error('Invalid type or weight class');
+          throw new Error('Jenis atau kelas berat tidak valid');
 
         if (['DISTRIBUTE', 'DEATH', 'DAMAGED'].includes(transactionType)) {
           const { data: inventoryData, error } = await supabase
@@ -295,12 +295,12 @@ export default function Stock() {
           const currentStock = inventoryData?.quantity || 0;
           if (currentStock < quantity) {
             throw new Error(
-              `Not enough stock: only ${currentStock} ${lobsterType} (${weightClass}) available`
+              `Stok tidak cukup: hanya ${currentStock} ${lobsterType} (${weightClass}) tersedia`
             );
           }
           if (currentStock === 0) {
             throw new Error(
-              `No stock available for ${lobsterType} (${weightClass})`
+              `Tidak ada stok untuk ${lobsterType} (${weightClass})`
             );
           }
         }
@@ -316,39 +316,37 @@ export default function Stock() {
         });
         if (manageError) {
           if (manageError.message.includes('Quantity must be positive')) {
-            throw new Error('Quantity must be a positive number');
+            throw new Error('Jumlah harus bilangan positif');
           }
           if (manageError.message.includes('No inventory exists')) {
             throw new Error(
-              `No stock available for ${lobsterType} (${weightClass})`
+              `Tidak ada stok untuk ${lobsterType} (${weightClass})`
             );
           }
           if (manageError.message.includes('Insufficient inventory')) {
             const available = manageError.message.match(/\d+/)[0];
             throw new Error(
-              `Not enough stock: only ${available} ${lobsterType} (${weightClass}) available`
+              `Stok tidak cukup: hanya ${available} ${lobsterType} (${weightClass}) tersedia`
             );
           }
           if (manageError.message.includes('Validation failed')) {
             throw new Error(
-              `Not enough stock for ${lobsterType} (${weightClass})`
+              `Stok tidak cukup untuk ${lobsterType} (${weightClass})`
             );
           }
           if (manageError.message.includes('Update failed')) {
             throw new Error(
-              `No stock available for ${lobsterType} (${weightClass})`
+              `Tidak ada stok untuk ${lobsterType} (${weightClass})`
             );
           }
           if (manageError.message.includes('Destination is required')) {
-            throw new Error(
-              'Destination is required for this transaction type'
-            );
+            throw new Error('Tujuan wajib diisi untuk jenis transaksi ini');
           }
           if (
             manageError.message.includes('function public.manage_inventory')
           ) {
             throw new Error(
-              'Database function manage_inventory not found. Please contact support.'
+              'Fungsi database manage_inventory tidak ditemukan. Silakan hubungi dukungan.'
             );
           }
           throw new Error(manageError.message);
@@ -367,27 +365,27 @@ export default function Stock() {
         });
         setIsModalOpen(false);
         setAvailableStock(null);
-        toast.success('Transaction Successful', {
+        toast.success('Transaksi Berhasil', {
           description: `${quantity} ${lobsterType} (${weightClass}) ${
             transactionType === 'ADD'
-              ? 'added'
+              ? 'ditambahkan'
               : transactionType === 'DISTRIBUTE'
-              ? 'distributed'
+              ? 'didistribusikan'
               : transactionType === 'DEATH'
-              ? 'distributed as died'
-              : 'distributed as damaged'
-          } on ${new Date(transactionDate).toLocaleString('id-ID', {
+              ? 'dicatat sebagai mati'
+              : 'dicatat sebagai rusak'
+          } pada ${new Date(transactionDate).toLocaleString('id-ID', {
             dateStyle: 'medium',
             timeStyle: 'short',
           })}.`,
           action: {
-            label: 'View Transactions',
+            label: 'Lihat Transaksi',
             onClick: () => (window.location.href = '/transaksi'),
           },
         });
       } catch (error) {
         setFormError(error.message);
-        toast.error('Transaction Failed', { description: error.message });
+        toast.error('Transaksi Gagal', { description: error.message });
       } finally {
         setIsSubmitting(false);
       }
@@ -518,7 +516,7 @@ export default function Stock() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p className="text-gray-500 dark:text-gray-400">Loading stock...</p>
+            <p className="text-gray-500 dark:text-gray-400">Memuat stok...</p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -538,7 +536,7 @@ export default function Stock() {
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
             <p className="text-gray-500 dark:text-gray-400">
-              Please log in to view stock.
+              Silakan masuk untuk melihat stok.
             </p>
           </div>
         </SidebarInset>
@@ -558,7 +556,7 @@ export default function Stock() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p className="text-red-500 dark:text-red-400">Error: {error}</p>
+            <p className="text-red-500 dark:text-red-400">Kesalahan: {error}</p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -578,17 +576,17 @@ export default function Stock() {
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              Stock Management
+              Manajemen Stok
             </h2>
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white">
-                  Add Transaction
+                  Tambah Transaksi
                 </Button>
               </DialogTrigger>
               <DialogContent className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
                 <DialogHeader>
-                  <DialogTitle>Add Transaction</DialogTitle>
+                  <DialogTitle>Tambah Transaksi</DialogTitle>
                 </DialogHeader>
                 <Form {...form}>
                   <form
@@ -600,14 +598,14 @@ export default function Stock() {
                       name="lobsterType"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Lobster Type</FormLabel>
+                          <FormLabel>Jenis Lobster</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
                           >
                             <FormControl>
                               <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
-                                <SelectValue placeholder="Select lobster type" />
+                                <SelectValue placeholder="Pilih jenis lobster" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
@@ -627,14 +625,14 @@ export default function Stock() {
                       name="weightClass"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Weight Class</FormLabel>
+                          <FormLabel>Kelas Berat</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
                           >
                             <FormControl>
                               <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
-                                <SelectValue placeholder="Select weight class" />
+                                <SelectValue placeholder="Pilih kelas berat" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
@@ -655,13 +653,13 @@ export default function Stock() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>
-                            Quantity{' '}
+                            Jumlah{' '}
                             {availableStock !== null &&
                               ['DISTRIBUTE', 'DEATH', 'DAMAGED'].includes(
                                 form.watch('transactionType')
                               ) && (
                                 <span className="text-sm text-gray-500">
-                                  (Available: {availableStock} Ekor)
+                                  (Tersedia: {availableStock} Ekor)
                                 </span>
                               )}
                           </FormLabel>
@@ -685,23 +683,23 @@ export default function Stock() {
                       name="transactionType"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Transaction Type</FormLabel>
+                          <FormLabel>Jenis Transaksi</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
                           >
                             <FormControl>
                               <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
-                                <SelectValue placeholder="Select transaction type" />
+                                <SelectValue placeholder="Pilih jenis transaksi" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
-                              <SelectItem value="ADD">Add</SelectItem>
+                              <SelectItem value="ADD">Penambahan</SelectItem>
                               <SelectItem value="DISTRIBUTE">
-                                Distribute
+                                Distribusi
                               </SelectItem>
-                              <SelectItem value="DEATH">Death</SelectItem>
-                              <SelectItem value="DAMAGED">Damaged</SelectItem>
+                              <SelectItem value="DEATH">Kematian</SelectItem>
+                              <SelectItem value="DAMAGED">Kerusakan</SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -714,7 +712,7 @@ export default function Stock() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>
-                            Destination{' '}
+                            Tujuan{' '}
                             {form.watch('transactionType') !== 'ADD' ? (
                               <span className="text-red-500">*</span>
                             ) : (
@@ -724,7 +722,7 @@ export default function Stock() {
                           <FormControl>
                             <Input
                               className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-                              placeholder="Enter destination (e.g., Market, Restaurant)"
+                              placeholder="Masukkan tujuan (misalnya, Pasar, Restoran)"
                               {...field}
                             />
                           </FormControl>
@@ -737,7 +735,7 @@ export default function Stock() {
                       name="transactionDate"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Transaction Date</FormLabel>
+                          <FormLabel>Tanggal Transaksi</FormLabel>
                           <FormControl>
                             <Input
                               type="datetime-local"
@@ -754,7 +752,7 @@ export default function Stock() {
                       name="note"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Note (Optional)</FormLabel>
+                          <FormLabel>Catatan (Opsional)</FormLabel>
                           <FormControl>
                             <Input
                               className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
@@ -778,14 +776,14 @@ export default function Stock() {
                         onClick={() => setIsModalOpen(false)}
                         disabled={isSubmitting}
                       >
-                        Cancel
+                        Batal
                       </Button>
                       <Button
                         type="submit"
                         className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white"
                         disabled={isSubmitting}
                       >
-                        {isSubmitting ? 'Submitting...' : 'Submit Transaction'}
+                        {isSubmitting ? 'Mengirim...' : 'Kirim Transaksi'}
                       </Button>
                     </div>
                   </form>
@@ -797,12 +795,12 @@ export default function Stock() {
           {/* Stock by Type */}
           <div className="mb-8">
             <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
-              Stock by Lobster Type
+              Stok Berdasarkan Jenis Lobster
             </h3>
             {memoizedStockByType.length === 0 ? (
               <p className="text-gray-500 dark:text-gray-400">
-                No inventory data available. Add lobsters using the button
-                above.
+                Tidak ada data inventaris. Tambah lobster menggunakan tombol di
+                atas.
               </p>
             ) : (
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -845,7 +843,7 @@ export default function Stock() {
                         </div>
                       ) : (
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                          No weight classes with stock
+                          Tidak ada kelas berat dengan stok
                         </p>
                       )}
                     </CardContent>

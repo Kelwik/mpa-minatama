@@ -34,9 +34,9 @@ export function ChartBulan({ chartData }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Lobster Transaction Trends</CardTitle>
+        <CardTitle>Tren Transaksi Lobster</CardTitle>
         <CardDescription>
-          Monthly Incoming and Outgoing {currentYear}
+          Pemasukan dan Pengeluaran Tahun: {currentYear}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -63,15 +63,6 @@ export function ChartBulan({ chartData }) {
           </BarChart>
         </ChartContainer>
       </CardContent>
-      <CardFooter className="flex-col items-start gap-2 text-sm">
-        <div className="flex gap-2 font-medium leading-none">
-          Visualizing monthly lobster transactions{' '}
-          <TrendingUp className="h-4 w-4" />
-        </div>
-        <div className="leading-none text-muted-foreground">
-          Showing incoming (ADD) and outgoing (DISTRIBUTE) transactions
-        </div>
-      </CardFooter>
     </Card>
   );
 }

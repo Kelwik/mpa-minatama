@@ -83,7 +83,7 @@ export default function Transaksi() {
       if (error) throw error;
       setLobsterTypes(data.map((type) => type.name));
     } catch (error) {
-      toast.error('Failed to load lobster types', {
+      toast.error('Gagal Memuat Jenis Lobster', {
         description: error.message,
       });
     }
@@ -147,7 +147,7 @@ export default function Transaksi() {
       setTotalItems(count || 0);
     } catch (error) {
       setError(error.message);
-      toast.error('Failed to load transactions', {
+      toast.error('Gagal Memuat Transaksi', {
         description: error.message,
       });
     } finally {
@@ -177,11 +177,11 @@ export default function Transaksi() {
 
   // Normalize notes
   const getNotesDisplay = useCallback((notes) => {
-    if (!notes) return 'N/A';
+    if (!notes) return 'Tidak Ada';
     if (typeof notes === 'string') return notes;
     if (typeof notes === 'object')
-      return notes.note || JSON.stringify(notes) || 'N/A';
-    return 'N/A';
+      return notes.note || JSON.stringify(notes) || 'Tidak Ada';
+    return 'Tidak Ada';
   }, []);
 
   // Get transaction type color
@@ -200,11 +200,20 @@ export default function Transaksi() {
     }
   }, []);
 
+  // Map transaction types to Bahasa Indonesia for display
+  const transactionTypeDisplay = {
+    ADD: 'Penambahan',
+    DISTRIBUTE: 'Distribusi',
+    DEATH: 'Kematian',
+    DAMAGED: 'Kerusakan',
+    all: 'Semua Jenis Transaksi',
+  };
+
   // Export transactions to PDF (all filtered transactions)
   const exportToPDF = useCallback(async () => {
     if (transactions.length === 0) {
-      toast.warning('No Transactions', {
-        description: 'No transactions available to export.',
+      toast.warning('Tidak Ada Transaksi', {
+        description: 'Tidak ada transaksi untuk diekspor.',
       });
       return;
     }
@@ -213,24 +222,26 @@ export default function Transaksi() {
       const doc = new jsPDF();
       const filterText = [
         startDate
-          ? `From: ${format(new Date(startDate), 'dd MMMM yyyy', {
+          ? `Dari: ${format(new Date(startDate), 'dd MMMM yyyy', {
               locale: id,
             })}`
           : '',
         endDate
-          ? `To: ${format(new Date(endDate), 'dd MMMM yyyy', { locale: id })}`
+          ? `Sampai: ${format(new Date(endDate), 'dd MMMM yyyy', {
+              locale: id,
+            })}`
           : '',
         selectedLobsterType !== 'all'
-          ? `Lobster Type: ${selectedLobsterType}`
-          : 'Lobster Type: All',
+          ? `Jenis Lobster: ${selectedLobsterType}`
+          : 'Jenis Lobster: Semua',
         selectedTransactionType !== 'all'
-          ? `Transaction Type: ${selectedTransactionType}`
+          ? `Jenis Transaksi: ${transactionTypeDisplay[selectedTransactionType]}`
           : '',
       ]
         .filter(Boolean)
         .join(' | ');
 
-      doc.text('Transaction History', 14, 20);
+      doc.text('Riwayat Transaksi', 14, 20);
       if (filterText) doc.text(filterText, 14, 27);
 
       // Fetch all transactions for PDF (no pagination)
@@ -269,28 +280,30 @@ export default function Transaksi() {
 
       autoTable(doc, {
         startY: filterText ? 34 : 30,
-        head: [['Type', 'Lobster', 'Weight', 'Quantity', 'Notes', 'Date']],
+        head: [['Jenis', 'Lobster', 'Berat', 'Jumlah', 'Catatan', 'Tanggal']],
         body: (data || []).map((t) => [
-          t.transaction_type || 'Unknown',
-          t.lobster_types?.name || 'N/A',
-          `${t.weight_classes?.weight_range} gram` || 'N/A',
+          transactionTypeDisplay[t.transaction_type] || 'Tidak Diketahui',
+          t.lobster_types?.name || 'Tidak Ada',
+          `${t.weight_classes?.weight_range} gram` || 'Tidak Ada',
           `${Math.abs(t.quantity) ?? 0} Ekor`,
           getNotesDisplay(t.notes),
           t.transaction_date
             ? format(new Date(t.transaction_date), 'dd MMMM yyyy', {
                 locale: id,
               })
-            : 'N/A',
+            : 'Tidak Ada',
         ]),
       });
 
       // Build dynamic filename
-      const filenameParts = ['transactions'];
+      const filenameParts = ['transaksi'];
       if (startDate || endDate) {
         const start = startDate
           ? format(new Date(startDate), 'yyyyMMdd')
-          : 'no_start';
-        const end = endDate ? format(new Date(endDate), 'yyyyMMdd') : 'no_end';
+          : 'tanpa_tanggal_mulai';
+        const end = endDate
+          ? format(new Date(endDate), 'yyyyMMdd')
+          : 'tanpa_tanggal_selesai';
         filenameParts.push(`${start}-${end}`);
       }
       if (selectedLobsterType !== 'all') {
@@ -300,22 +313,22 @@ export default function Transaksi() {
             .replace(/[^a-zA-Z0-9_-]/g, '')
         );
       } else {
-        filenameParts.push('AllTypes');
+        filenameParts.push('SemuaJenis');
       }
       if (selectedTransactionType !== 'all') {
         filenameParts.push(selectedTransactionType);
       } else {
-        filenameParts.push('AllTransactions');
+        filenameParts.push('SemuaTransaksi');
       }
       const filename = `${filenameParts.join('_')}.pdf`;
 
       doc.save(filename);
-      toast.success('PDF Downloaded', {
-        description: `Filtered transaction history saved as ${filename}`,
+      toast.success('PDF Berhasil Diunduh', {
+        description: `Riwayat transaksi yang difilter disimpan sebagai ${filename}`,
       });
     } catch (error) {
-      toast.error('PDF Export Failed', {
-        description: error.message || 'An unexpected error occurred.',
+      toast.error('Ekspor PDF Gagal', {
+        description: error.message || 'Terjadi kesalahan tak terduga.',
       });
     }
   }, [
@@ -405,23 +418,23 @@ export default function Transaksi() {
           type="date"
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
-          placeholder="Start Date"
+          placeholder="Tanggal Mulai"
         />
         <Input
           type="date"
           value={endDate}
           onChange={(e) => setEndDate(e.target.value)}
-          placeholder="End Date"
+          placeholder="Tanggal Selesai"
         />
         <Select
           value={selectedLobsterType}
           onValueChange={setSelectedLobsterType}
         >
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Select Lobster Type" />
+            <SelectValue placeholder="Pilih Jenis Lobster" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="all">Semua Jenis</SelectItem>
             {lobsterTypes.map((type) => (
               <SelectItem key={type} value={type}>
                 {type}
@@ -434,18 +447,18 @@ export default function Transaksi() {
           onValueChange={setSelectedTransactionType}
         >
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Select Transaction Type" />
+            <SelectValue placeholder="Pilih Jenis Transaksi" />
           </SelectTrigger>
           <SelectContent>
             {transactionTypes.map((type) => (
               <SelectItem key={type} value={type}>
-                {type === 'all' ? 'All Transaction Types' : type}
+                {transactionTypeDisplay[type]}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Button variant="outline" onClick={clearFilters}>
-          Clear Filters
+          Hapus Filter
         </Button>
       </div>
     ),
@@ -465,7 +478,7 @@ export default function Transaksi() {
     () => (
       <div className="flex items-center justify-between gap-4 mt-4">
         <div className="flex items-center gap-2">
-          <span>Rows per page:</span>
+          <span>Baris per halaman:</span>
           <Select
             value={itemsPerPage.toString()}
             onValueChange={(value) => {
@@ -489,17 +502,17 @@ export default function Transaksi() {
             onClick={handlePreviousPage}
             disabled={currentPage === 1}
           >
-            Previous
+            Sebelumnya
           </Button>
           <span>
-            Page {currentPage} of {totalPages || 1}
+            Halaman {currentPage} dari {totalPages || 1}
           </span>
           <Button
             variant="outline"
             onClick={handleNextPage}
             disabled={currentPage >= totalPages}
           >
-            Next
+            Selanjutnya
           </Button>
         </div>
       </div>
@@ -520,7 +533,7 @@ export default function Transaksi() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p>Loading authentication...</p>
+            <p>Memuat autentikasi...</p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -540,7 +553,7 @@ export default function Transaksi() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p>Please log in to view transactions.</p>
+            <p>Silakan masuk untuk melihat transaksi.</p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -560,7 +573,7 @@ export default function Transaksi() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p className="text-red-500">Error: {error}</p>
+            <p className="text-red-500">Kesalahan: {error}</p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -580,8 +593,8 @@ export default function Transaksi() {
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
           <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-bold">Transaction History</h2>
-            <Button onClick={exportToPDF}>Download PDF</Button>
+            <h2 className="text-2xl font-bold">Riwayat Transaksi</h2>
+            <Button onClick={exportToPDF}>Unduh PDF</Button>
           </div>
           {filterInputs}
           <Table>
@@ -623,22 +636,25 @@ export default function Transaksi() {
               ) : transactions.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center">
-                    No transactions found.
+                    Tidak ada transaksi ditemukan.
                   </TableCell>
                 </TableRow>
               ) : (
                 transactions.map((t) => (
                   <TableRow
                     key={`${t.transaction_date}-${t.transaction_type}-${
-                      t.lobster_types?.name || 'unknown'
-                    }-${t.weight_classes?.weight_range || 'unknown'}`}
+                      t.lobster_types?.name || 'tidak_diketahui'
+                    }-${t.weight_classes?.weight_range || 'tidak_diketahui'}`}
                   >
                     <TableCell className="font-medium">
-                      {t.transaction_type || 'Unknown'}
+                      {transactionTypeDisplay[t.transaction_type] ||
+                        'Tidak Diketahui'}
                     </TableCell>
-                    <TableCell>{t.lobster_types?.name || 'N/A'}</TableCell>
                     <TableCell>
-                      {`${t.weight_classes?.weight_range} gram` || 'N/A'}
+                      {t.lobster_types?.name || 'Tidak Ada'}
+                    </TableCell>
+                    <TableCell>
+                      {`${t.weight_classes?.weight_range} gram` || 'Tidak Ada'}
                     </TableCell>
                     <TableCell
                       className={getTransactionColor(t.transaction_type)}
@@ -651,7 +667,7 @@ export default function Transaksi() {
                         ? format(new Date(t.transaction_date), 'dd MMMM yyyy', {
                             locale: id,
                           })
-                        : 'N/A'}
+                        : 'Tidak Ada'}
                     </TableCell>
                   </TableRow>
                 ))

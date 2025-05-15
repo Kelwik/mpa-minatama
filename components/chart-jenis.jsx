@@ -23,7 +23,7 @@ const ChartJenis = ({ chartData }) => {
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>Distribution by Lobster Type</CardTitle>
+        <CardTitle>Pie Chart Distribusi Lobster Berdasarkan Jenis</CardTitle>
       </CardHeader>
       <CardContent>
         {chartData.length === 0 ? (
