@@ -40,13 +40,27 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 
 // Form schema for transaction
-const formSchema = z.object({
-  lobsterType: z.string().min(1, 'Lobster type is required'),
-  weightClass: z.string().min(1, 'Weight class is required'),
-  quantity: z.number().min(1, 'Quantity must be at least 1').int(),
-  transactionType: z.enum(['ADD', 'DISTRIBUTE']),
-  note: z.string().optional(),
-});
+const formSchema = z
+  .object({
+    lobsterType: z.string().min(1, 'Lobster type is required'),
+    weightClass: z.string().min(1, 'Weight class is required'),
+    quantity: z.number().min(1, 'Quantity must be at least 1').int(),
+    transactionType: z.enum(['ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED']),
+    destination: z.string().optional(),
+    note: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      if (['DISTRIBUTE', 'DEATH', 'DAMAGED'].includes(data.transactionType)) {
+        return data.destination && data.destination.trim() !== '';
+      }
+      return true;
+    },
+    {
+      message: 'Destination is required for this transaction type',
+      path: ['destination'],
+    }
+  );
 
 export default function Stock() {
   const [user, setUser] = useState(null);
@@ -54,6 +68,7 @@ export default function Stock() {
   const [weightClasses, setWeightClasses] = useState({});
   const [lobsterTypes, setLobsterTypes] = useState([]);
   const [allWeightClasses, setAllWeightClasses] = useState([]);
+  const [availableStock, setAvailableStock] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [formError, setFormError] = useState(null);
@@ -68,6 +83,7 @@ export default function Stock() {
       weightClass: '',
       quantity: 1,
       transactionType: 'ADD',
+      destination: '',
       note: '',
     },
   });
@@ -137,7 +153,7 @@ export default function Stock() {
             `
             )
             .eq('type_id', typeData.id)
-            .gt('quantity', 0); // Only fetch weight classes with stock
+            .gt('quantity', 0);
           if (inventoryError) throw inventoryError;
 
           return inventoryData.map((row) => ({
@@ -179,13 +195,55 @@ export default function Stock() {
     }
   };
 
+  // Fetch available stock when lobsterType or weightClass changes
+  const fetchAvailableStock = async (lobsterType, weightClass) => {
+    if (!lobsterType || !weightClass) {
+      setAvailableStock(null);
+      return;
+    }
+    try {
+      const { data: typeData, error: typeError } = await supabase
+        .from('lobster_types')
+        .select('id')
+        .eq('name', lobsterType)
+        .single();
+      if (typeError) throw typeError;
+
+      const { data: weightClassData, error: wcError } = await supabase
+        .from('weight_classes')
+        .select('id')
+        .eq('weight_range', weightClass)
+        .single();
+      if (wcError) throw wcError;
+
+      const { data: inventoryData, error: inventoryError } = await supabase
+        .from('inventory')
+        .select('quantity')
+        .eq('type_id', typeData.id)
+        .eq('weight_class_id', weightClassData.id)
+        .single();
+      if (inventoryError && inventoryError.code !== 'PGRST116')
+        throw inventoryError;
+
+      setAvailableStock(inventoryData?.quantity || 0);
+    } catch (error) {
+      setAvailableStock(0);
+    }
+  };
+
   // Submit transaction
   const submitTransaction = async (values) => {
     try {
       setFormError(null);
       setIsSubmitting(true);
-      const { lobsterType, weightClass, quantity, transactionType, note } =
-        values;
+      const {
+        lobsterType,
+        weightClass,
+        quantity,
+        transactionType,
+        destination,
+        note,
+      } = values;
 
       const { data: typeData, error: typeError } = await supabase
         .from('lobster_types')
@@ -201,29 +259,71 @@ export default function Stock() {
         .single();
       if (wcError) throw wcError;
 
+      // Client-side stock check for DISTRIBUTE, DEATH, DAMAGED
+      if (['DISTRIBUTE', 'DEATH', 'DAMAGED'].includes(transactionType)) {
+        const { data: inventoryData, error: inventoryError } = await supabase
+          .from('inventory')
+          .select('quantity')
+          .eq('type_id', typeData.id)
+          .eq('weight_class_id', weightClassData.id)
+          .single();
+        if (inventoryError && inventoryError.code !== 'PGRST116')
+          throw inventoryError;
+        const currentStock = inventoryData?.quantity || 0;
+        if (currentStock < quantity) {
+          throw new Error(
+            `Not enough stock: only ${currentStock} ${lobsterType} (${weightClass}) available`
+          );
+        }
+        if (currentStock === 0) {
+          throw new Error(
+            `No stock available for ${lobsterType} (${weightClass})`
+          );
+        }
+      }
+
       const { error: manageError } = await supabase.rpc('manage_inventory', {
         p_type_id: typeData.id,
         p_weight_class_id: weightClassData.id,
         p_quantity: quantity,
         p_transaction_type: transactionType,
-        p_notes: note || null,
+        p_destination: destination || null,
+        p_notes: note ? { note } : null,
       });
       if (manageError) {
+        if (manageError.message.includes('Quantity must be positive')) {
+          throw new Error('Quantity must be a positive number');
+        }
+        if (manageError.message.includes('No inventory exists')) {
+          throw new Error(
+            `No stock available for ${lobsterType} (${weightClass})`
+          );
+        }
+        if (manageError.message.includes('Insufficient inventory')) {
+          const available = manageError.message.match(/\d+/)[0];
+          throw new Error(
+            `Not enough stock: only ${available} ${lobsterType} (${weightClass}) available`
+          );
+        }
+        if (manageError.message.includes('Validation failed')) {
+          throw new Error(
+            `Not enough stock for ${lobsterType} (${weightClass})`
+          );
+        }
+        if (manageError.message.includes('Update failed')) {
+          throw new Error(
+            `No stock available for ${lobsterType} (${weightClass})`
+          );
+        }
+        if (manageError.message.includes('Destination is required')) {
+          throw new Error('Destination is required for this transaction type');
+        }
         if (manageError.message.includes('function public.manage_inventory')) {
           throw new Error(
             'Database function manage_inventory not found. Please contact support.'
           );
         }
-        if (
-          manageError.message.includes(
-            'violates check constraint "transactions_quantity_check"'
-          )
-        ) {
-          throw new Error(
-            'Database error: Quantity constraint violation. Please contact support.'
-          );
-        }
-        throw manageError;
+        throw new Error(manageError.message);
       }
 
       // Refresh stock data
@@ -232,11 +332,18 @@ export default function Stock() {
         await fetchWeightClasses(type.lobster_type);
       }
       form.reset();
-      setIsModalOpen(false); // Close modal on success
+      setIsModalOpen(false);
+      setAvailableStock(null);
       toast.success('Transaction Successful', {
         description: `${quantity} ${lobsterType} (${weightClass}) ${
-          transactionType === 'ADD' ? 'added' : 'distributed'
-        }.`,
+          transactionType === 'ADD'
+            ? 'added'
+            : transactionType === 'DISTRIBUTE'
+            ? 'distributed'
+            : transactionType === 'DEATH'
+            ? 'distributed as died'
+            : 'distributed as damaged'
+        } to ${destination}.`,
         action: {
           label: 'View Transactions',
           onClick: () => (window.location.href = '/transaksi'),
@@ -251,6 +358,18 @@ export default function Stock() {
       setIsSubmitting(false);
     }
   };
+
+  // Watch form changes to fetch available stock
+  useEffect(() => {
+    const subscription = form.watch((value) => {
+      if (value.lobsterType && value.weightClass) {
+        fetchAvailableStock(value.lobsterType, value.weightClass);
+      } else {
+        setAvailableStock(null);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
 
   // Initial fetch and real-time subscriptions
   useEffect(() => {
@@ -274,6 +393,15 @@ export default function Stock() {
             stockByType.forEach((type) =>
               fetchWeightClasses(type.lobster_type)
             );
+            if (
+              form.getValues('lobsterType') &&
+              form.getValues('weightClass')
+            ) {
+              fetchAvailableStock(
+                form.getValues('lobsterType'),
+                form.getValues('weightClass')
+              );
+            }
           }
         )
         .subscribe();
@@ -288,6 +416,15 @@ export default function Stock() {
             stockByType.forEach((type) =>
               fetchWeightClasses(type.lobster_type)
             );
+            if (
+              form.getValues('lobsterType') &&
+              form.getValues('weightClass')
+            ) {
+              fetchAvailableStock(
+                form.getValues('lobsterType'),
+                form.getValues('weightClass')
+              );
+            }
           }
         )
         .subscribe();
@@ -476,7 +613,17 @@ export default function Stock() {
                       name="quantity"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Quantity</FormLabel>
+                          <FormLabel>
+                            Quantity{' '}
+                            {availableStock !== null &&
+                              ['DISTRIBUTE', 'DEATH', 'DAMAGED'].includes(
+                                form.watch('transactionType')
+                              ) && (
+                                <span className="text-sm text-gray-500">
+                                  (Available: {availableStock} Ekor)
+                                </span>
+                              )}
+                          </FormLabel>
                           <FormControl>
                             <Input
                               type="number"
@@ -512,8 +659,34 @@ export default function Stock() {
                               <SelectItem value="DISTRIBUTE">
                                 Distribute
                               </SelectItem>
+                              <SelectItem value="DEATH">Death</SelectItem>
+                              <SelectItem value="DAMAGED">Damaged</SelectItem>
                             </SelectContent>
                           </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="destination"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Destination{' '}
+                            {form.watch('transactionType') !== 'ADD' ? (
+                              <span className="text-red-500">*</span>
+                            ) : (
+                              ''
+                            )}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                              placeholder="Enter destination (e.g., Market, Restaurant)"
+                              {...field}
+                            />
+                          </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}

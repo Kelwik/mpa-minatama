@@ -41,8 +41,11 @@ export default function Transaksi() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedLobsterType, setSelectedLobsterType] = useState('all');
+  const [selectedTransactionType, setSelectedTransactionType] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const transactionTypes = ['all', 'ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED'];
 
   // Check authentication
   useEffect(() => {
@@ -104,6 +107,9 @@ export default function Transaksi() {
           .single();
         if (typeData) query.eq('type_id', typeData.id);
       }
+      if (selectedTransactionType !== 'all') {
+        query.eq('transaction_type', selectedTransactionType);
+      }
 
       const { data, error } = await query;
       if (error) throw error;
@@ -114,9 +120,9 @@ export default function Transaksi() {
         description: error.message,
       });
     }
-  }, [startDate, endDate, selectedLobsterType]);
+  }, [startDate, endDate, selectedLobsterType, selectedTransactionType]);
 
-  // Debounced fetch to prevent excessive queries
+  // Debounced fetch
   const debouncedFetchTransactions = useCallback(
     debounce(fetchTransactions, 300),
     [fetchTransactions]
@@ -129,6 +135,22 @@ export default function Transaksi() {
     if (typeof notes === 'object')
       return notes.note || JSON.stringify(notes) || 'N/A';
     return 'N/A';
+  };
+
+  // Get transaction type color
+  const getTransactionColor = (type) => {
+    switch (type) {
+      case 'ADD':
+        return 'text-green-500';
+      case 'DISTRIBUTE':
+        return 'text-red-500';
+      case 'DEATH':
+        return 'text-gray-500';
+      case 'DAMAGED':
+        return 'text-orange-500';
+      default:
+        return 'text-black';
+    }
   };
 
   // Export transactions to PDF
@@ -154,6 +176,9 @@ export default function Transaksi() {
         selectedLobsterType !== 'all'
           ? `Lobster Type: ${selectedLobsterType}`
           : 'Lobster Type: All',
+        selectedTransactionType !== 'all'
+          ? `Transaction Type: ${selectedTransactionType}`
+          : '',
       ]
         .filter(Boolean)
         .join(' | ');
@@ -167,7 +192,7 @@ export default function Transaksi() {
         body: transactions.map((t) => [
           t.transaction_type || 'Unknown',
           t.lobster_types?.name || 'N/A',
-          t.weight_classes?.weight_range || 'N/A',
+          `${t.weight_classes?.weight_range} gram` || 'N/A',
           `${Math.abs(t.quantity) ?? 0} Ekor`,
           getNotesDisplay(t.notes),
           t.transaction_date
@@ -194,6 +219,7 @@ export default function Transaksi() {
     setStartDate('');
     setEndDate('');
     setSelectedLobsterType('all');
+    setSelectedTransactionType('all');
     debouncedFetchTransactions();
   };
 
@@ -211,7 +237,7 @@ export default function Transaksi() {
         .channel('transactions')
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'transactions' },
+          { event: '*', schema: 'public', table: 'transactions' },
           debouncedFetchTransactions
         )
         .subscribe();
@@ -230,6 +256,7 @@ export default function Transaksi() {
     startDate,
     endDate,
     selectedLobsterType,
+    selectedTransactionType,
     debouncedFetchTransactions,
   ]);
 
@@ -337,6 +364,21 @@ export default function Transaksi() {
                 ))}
               </SelectContent>
             </Select>
+            <Select
+              value={selectedTransactionType}
+              onValueChange={setSelectedTransactionType}
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select Transaction Type" />
+              </SelectTrigger>
+              <SelectContent>
+                {transactionTypes.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type === 'all' ? 'All Transaction Types' : type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" onClick={clearFilters}>
               Clear Filters
             </Button>
@@ -372,12 +414,10 @@ export default function Transaksi() {
                     </TableCell>
                     <TableCell>{t.lobster_types?.name || 'N/A'}</TableCell>
                     <TableCell>
-                      {t.weight_classes?.weight_range || 'N/A'}
+                      {`${t.weight_classes?.weight_range} gram` || 'N/A'}
                     </TableCell>
                     <TableCell
-                      className={
-                        t.quantity < 0 ? 'text-red-500' : 'text-green-500'
-                      }
+                      className={getTransactionColor(t.transaction_type)}
                     >
                       {Math.abs(t.quantity) ?? 0} Ekor
                     </TableCell>
