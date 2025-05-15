@@ -39,6 +39,17 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 
+// Format current date/time for datetime-local (YYYY-MM-DDTHH:mm)
+const getCurrentDateTime = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 // Form schema for transaction
 const formSchema = z
   .object({
@@ -48,6 +59,12 @@ const formSchema = z
     transactionType: z.enum(['ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED']),
     destination: z.string().optional(),
     note: z.string().optional(),
+    transactionDate: z
+      .string()
+      .min(1, 'Transaction date is required')
+      .refine((val) => !isNaN(Date.parse(val)), {
+        message: 'Invalid date format',
+      }),
   })
   .refine(
     (data) => {
@@ -85,6 +102,7 @@ export default function Stock() {
       transactionType: 'ADD',
       destination: '',
       note: '',
+      transactionDate: getCurrentDateTime(),
     },
   });
 
@@ -243,6 +261,7 @@ export default function Stock() {
         transactionType,
         destination,
         note,
+        transactionDate,
       } = values;
 
       const { data: typeData, error: typeError } = await supabase
@@ -289,6 +308,7 @@ export default function Stock() {
         p_transaction_type: transactionType,
         p_destination: destination || null,
         p_notes: note ? { note } : null,
+        p_transaction_date: new Date(transactionDate).toISOString(),
       });
       if (manageError) {
         if (manageError.message.includes('Quantity must be positive')) {
@@ -331,7 +351,15 @@ export default function Stock() {
       for (const type of stockByType) {
         await fetchWeightClasses(type.lobster_type);
       }
-      form.reset();
+      form.reset({
+        lobsterType: '',
+        weightClass: '',
+        quantity: 1,
+        transactionType: 'ADD',
+        destination: '',
+        note: '',
+        transactionDate: getCurrentDateTime(),
+      });
       setIsModalOpen(false);
       setAvailableStock(null);
       toast.success('Transaction Successful', {
@@ -343,7 +371,10 @@ export default function Stock() {
             : transactionType === 'DEATH'
             ? 'distributed as died'
             : 'distributed as damaged'
-        } to ${destination}.`,
+        } on ${new Date(transactionDate).toLocaleString('id-ID', {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        })}.`,
         action: {
           label: 'View Transactions',
           onClick: () => (window.location.href = '/transaksi'),
@@ -684,6 +715,23 @@ export default function Stock() {
                             <Input
                               className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                               placeholder="Enter destination (e.g., Market, Restaurant)"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="transactionDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Transaction Date</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="datetime-local"
+                              className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                               {...field}
                             />
                           </FormControl>
