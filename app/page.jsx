@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getLobsterTypes, getWeightClasses } from '@/lib/cache';
 import {
   SidebarInset,
   SidebarProvider,
@@ -19,6 +20,7 @@ import { Box, FolderInput, FolderOutput } from 'lucide-react';
 import { ChartBulan } from '@/components/chart-bulan';
 import { ChartJenis } from '@/components/chart-jenis';
 import { AppSidebar } from '@/components/app-sidebar';
+import debounce from 'lodash/debounce';
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
@@ -32,9 +34,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Cache weight classes to avoid repeated queries
-  const cachedWeightClasses = useRef(null);
-
   // Check authentication
   useEffect(() => {
     const fetchSession = async () => {
@@ -47,7 +46,7 @@ export default function Dashboard() {
     fetchSession();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (_, session) => {
         setUser(session?.user || null);
         setLoading(false);
       }
@@ -57,50 +56,24 @@ export default function Dashboard() {
   }, []);
 
   // Fetch weight classes for a lobster type
-  const fetchWeightClasses = async (typeName) => {
+  const fetchWeightClasses = useCallback(async (typeId, typeName) => {
     try {
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timed out')), 10000)
+        setTimeout(() => reject(new Error('Request timed out')), 5000)
       );
 
       const result = await Promise.race([
         (async () => {
-          const { data: typeData, error: typeError } = await supabase
-            .from('lobster_types')
-            .select('id')
-            .eq('name', typeName)
-            .single();
-          if (typeError || !typeData) return [];
-
-          const { data: inventoryData, error: inventoryError } = await supabase
+          const { data: inventoryData, error } = await supabase
             .from('inventory')
             .select(
-              `
-              weight_class_id,
-              quantity,
-              weight_classes (weight_range)
-            `
+              'weight_class_id, quantity, weight_classes!inner(weight_range)'
             )
-            .eq('type_id', typeData.id);
-          if (inventoryError) throw inventoryError;
+            .eq('type_id', typeId)
+            .gt('quantity', 0);
+          if (error) throw error;
 
-          let weightClassData = inventoryData || [];
-          if (weightClassData.length === 0) {
-            if (!cachedWeightClasses.current) {
-              const { data: allWeightClasses, error: wcError } = await supabase
-                .from('weight_classes')
-                .select('id, weight_range');
-              if (wcError) throw wcError;
-              cachedWeightClasses.current = allWeightClasses;
-            }
-            weightClassData = cachedWeightClasses.current.map((wc) => ({
-              weight_class_id: wc.id,
-              quantity: 0,
-              weight_classes: { weight_range: wc.weight_range },
-            }));
-          }
-
-          return weightClassData.map((row) => ({
+          return inventoryData.map((row) => ({
             weight_range: row.weight_classes?.weight_range || 'Unknown',
             quantity: row.quantity || 0,
           }));
@@ -108,45 +81,39 @@ export default function Dashboard() {
         timeoutPromise,
       ]);
 
-      setWeightClasses((prev) => ({
-        ...prev,
-        [typeName]: result,
-      }));
-    } catch (error) {
-      setWeightClasses((prev) => ({
-        ...prev,
-        [typeName]: [],
-      }));
+      setWeightClasses((prev) => ({ ...prev, [typeName]: result }));
+    } catch {
+      setWeightClasses((prev) => ({ ...prev, [typeName]: [] }));
     }
-  };
+  }, []);
 
-  // Fetch all dashboard data
-  const fetchDashboardData = async () => {
+  // Fetch dashboard data
+  const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Fetch inventory and stock by type
-      const { data: inventoryData, error: inventoryError } =
-        await supabase.from('inventory').select(`
-          quantity,
-          type_id,
-          lobster_types (name)
-        `);
+      // Fetch cached data
+      const [lobsterTypes, weightClassesData] = await Promise.all([
+        getLobsterTypes(supabase),
+        getWeightClasses(supabase),
+      ]);
+
+      // Fetch inventory
+      const { data: inventoryData, error: inventoryError } = await supabase
+        .from('inventory')
+        .select('type_id, quantity');
       if (inventoryError) throw inventoryError;
 
-      // Calculate total stock
+      // Calculate total stock and group by type
       const total = inventoryData.reduce(
         (sum, row) => sum + (row.quantity || 0),
         0
       );
-      setTotalStock(total);
-
-      // Group stock by type
       const grouped = inventoryData.reduce((acc, row) => {
-        const typeName = row.lobster_types?.name;
-        if (typeName) {
+        const type = lobsterTypes.find((t) => t.id === row.type_id);
+        const typeName = type?.name;
+        if (typeName)
           acc[typeName] = (acc[typeName] || 0) + (row.quantity || 0);
-        }
         return acc;
       }, {});
       const stockByTypeArray = Object.entries(grouped).map(
@@ -155,11 +122,13 @@ export default function Dashboard() {
           total_quantity,
         })
       );
-      setStockByType(stockByTypeArray);
 
       // Fetch weight classes for each type
       await Promise.all(
-        stockByTypeArray.map((type) => fetchWeightClasses(type.lobster_type))
+        stockByTypeArray.map(({ lobster_type }) => {
+          const typeId = lobsterTypes.find((t) => t.name === lobster_type)?.id;
+          return typeId ? fetchWeightClasses(typeId, lobster_type) : null;
+        })
       );
 
       // Fetch this month's transactions
@@ -170,9 +139,7 @@ export default function Dashboard() {
       const { data: transactionsData, error: transactionsError } =
         await supabase
           .from('transactions')
-          .select(
-            'quantity, transaction_type, transaction_date, type_id, lobster_types (name)'
-          )
+          .select('quantity, transaction_type, type_id')
           .gte('transaction_date', startOfMonth.toISOString())
           .lte('transaction_date', endOfMonth.toISOString());
       if (transactionsError) throw transactionsError;
@@ -188,21 +155,18 @@ export default function Dashboard() {
           .reduce((sum, t) => sum + (t.quantity || 0), 0)
       );
 
-      setIncomingThisMonth(incoming);
-      setOutgoingThisMonth(outgoing);
-
-      // Fetch pie chart data (all-time distributions by lobster type)
+      // Fetch pie chart data
       const { data: pieData, error: pieError } = await supabase
         .from('transactions')
-        .select('quantity, transaction_type, type_id, lobster_types (name)')
+        .select('quantity, transaction_type, type_id')
         .in('transaction_type', ['DISTRIBUTE', 'DEATH', 'DAMAGED']);
       if (pieError) throw pieError;
 
       const pieGrouped = pieData.reduce((acc, row) => {
-        const typeName = row.lobster_types?.name;
-        if (typeName) {
+        const type = lobsterTypes.find((t) => t.id === row.type_id);
+        const typeName = type?.name;
+        if (typeName)
           acc[typeName] = (acc[typeName] || 0) + Math.abs(row.quantity || 0);
-        }
         return acc;
       }, {});
       const pieChartArray = Object.entries(pieGrouped).map(
@@ -211,7 +175,6 @@ export default function Dashboard() {
           quantity,
         })
       );
-      setPieChartData(pieChartArray);
 
       // Fetch last 6 months' transactions
       const sixMonthsAgo = new Date();
@@ -255,6 +218,11 @@ export default function Dashboard() {
         return { month, Masuk: incoming, Keluar: outgoing };
       });
 
+      setTotalStock(total);
+      setStockByType(stockByTypeArray);
+      setIncomingThisMonth(incoming);
+      setOutgoingThisMonth(outgoing);
+      setPieChartData(pieChartArray);
       setChartData(monthlyChartData);
       setError(null);
     } catch (error) {
@@ -262,7 +230,13 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchWeightClasses]);
+
+  // Debounced fetch for real-time updates
+  const debouncedFetchDashboardData = useMemo(
+    () => debounce(fetchDashboardData, 500, { leading: false, trailing: true }),
+    [fetchDashboardData]
+  );
 
   // Initial fetch and real-time subscriptions
   useEffect(() => {
@@ -274,7 +248,7 @@ export default function Dashboard() {
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'inventory' },
-          fetchDashboardData
+          debouncedFetchDashboardData
         )
         .subscribe();
 
@@ -283,16 +257,21 @@ export default function Dashboard() {
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'transactions' },
-          fetchDashboardData
+          debouncedFetchDashboardData
         )
         .subscribe();
 
       return () => {
         supabase.removeChannel(inventorySubscription);
         supabase.removeChannel(transactionsSubscription);
+        debouncedFetchDashboardData.cancel();
       };
     }
-  }, [user]);
+  }, [user, debouncedFetchDashboardData]);
+
+  // Memoized UI data
+  const memoizedChartData = useMemo(() => chartData, [chartData]);
+  const memoizedPieChartData = useMemo(() => pieChartData, [pieChartData]);
 
   // Render loading, unauthorized, or error states
   if (loading) {
@@ -447,13 +426,13 @@ export default function Dashboard() {
           </div>
           <div className="mt-8">
             <h2 className="text-2xl font-bold mb-4">Monthly Trends</h2>
-            <ChartBulan chartData={chartData} />
+            <ChartBulan chartData={memoizedChartData} />
           </div>
           <div className="mt-8">
             <h2 className="text-2xl font-bold mb-4">
               Distribution by Lobster Type
             </h2>
-            <ChartJenis chartData={pieChartData} />
+            <ChartJenis chartData={memoizedPieChartData} />
           </div>
         </div>
       </SidebarInset>
