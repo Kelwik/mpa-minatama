@@ -203,9 +203,34 @@ export default function Transaksi() {
         ]),
       });
 
-      doc.save('transactions.pdf');
+      // Build dynamic filename
+      const filenameParts = ['transactions'];
+      if (startDate || endDate) {
+        const start = startDate
+          ? format(new Date(startDate), 'yyyyMMdd')
+          : 'no_start';
+        const end = endDate ? format(new Date(endDate), 'yyyyMMdd') : 'no_end';
+        filenameParts.push(`${start}-${end}`);
+      }
+      if (selectedLobsterType !== 'all') {
+        filenameParts.push(
+          selectedLobsterType
+            .replace(/\s+/g, '_')
+            .replace(/[^a-zA-Z0-9_-]/g, '')
+        );
+      } else {
+        filenameParts.push('AllTypes');
+      }
+      if (selectedTransactionType !== 'all') {
+        filenameParts.push(selectedTransactionType);
+      } else {
+        filenameParts.push('AllTransactions');
+      }
+      const filename = `${filenameParts.join('_')}.pdf`;
+
+      doc.save(filename);
       toast.success('PDF Downloaded', {
-        description: 'Filtered transaction history saved as transactions.pdf',
+        description: `Filtered transaction history saved as ${filename}`,
       });
     } catch (error) {
       toast.error('PDF Export Failed', {
