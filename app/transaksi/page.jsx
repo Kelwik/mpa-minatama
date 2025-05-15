@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { AppSidebar } from '@/components/app-sidebar';
 import {
@@ -46,6 +46,9 @@ export default function Transaksi() {
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
 
   const transactionTypes = ['all', 'ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED'];
 
@@ -72,18 +75,165 @@ export default function Transaksi() {
 
   // Fetch lobster types for filter dropdown
   const fetchLobsterTypes = async () => {
-    const { data, error } = await supabase
-      .from('lobster_types')
-      .select('name')
-      .order('name');
-    if (error) throw error;
-    setLobsterTypes(data.map((type) => type.name));
+    try {
+      const { data, error } = await supabase
+        .from('lobster_types')
+        .select('name')
+        .order('name');
+      if (error) throw error;
+      setLobsterTypes(data.map((type) => type.name));
+    } catch (error) {
+      toast.error('Failed to load lobster types', {
+        description: error.message,
+      });
+    }
   };
 
-  // Fetch transactions with filters
+  // Fetch transactions with filters and pagination
   const fetchTransactions = useCallback(async () => {
     try {
       setTableLoading(true);
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
+      // Count total transactions for pagination
+      const countQuery = supabase
+        .from('transactions')
+        .select('*', { count: 'exact', head: true });
+
+      // Main query for transactions
+      const query = supabase
+        .from('transactions')
+        .select(
+          `
+          transaction_type,
+          quantity,
+          transaction_date,
+          notes,
+          lobster_types (name),
+          weight_classes (weight_range)
+        `
+        )
+        .order('transaction_date', { ascending: false })
+        .range(from, to);
+
+      if (startDate)
+        query.gte('transaction_date', new Date(startDate).toISOString());
+      if (endDate)
+        query.lte('transaction_date', new Date(endDate).toISOString());
+      if (selectedLobsterType !== 'all') {
+        const { data: typeData } = await supabase
+          .from('lobster_types')
+          .select('id')
+          .eq('name', selectedLobsterType)
+          .single();
+        if (typeData) {
+          query.eq('type_id', typeData.id);
+          countQuery.eq('type_id', typeData.id);
+        }
+      }
+      if (selectedTransactionType !== 'all') {
+        query.eq('transaction_type', selectedTransactionType);
+        countQuery.eq('transaction_type', selectedTransactionType);
+      }
+
+      const [{ data, error }, { count }] = await Promise.all([
+        query,
+        countQuery,
+      ]);
+
+      if (error) throw error;
+      setTransactions(data || []);
+      setTotalItems(count || 0);
+    } catch (error) {
+      setError(error.message);
+      toast.error('Failed to load transactions', {
+        description: error.message,
+      });
+    } finally {
+      setTableLoading(false);
+    }
+  }, [
+    startDate,
+    endDate,
+    selectedLobsterType,
+    selectedTransactionType,
+    currentPage,
+    itemsPerPage,
+  ]);
+
+  // Debounced fetch
+  const debouncedFetchTransactions = useCallback(
+    debounce(fetchTransactions, 300, { leading: false, trailing: true }),
+    [fetchTransactions]
+  );
+
+  // Clean up debounce on component unmount
+  useEffect(() => {
+    return () => {
+      debouncedFetchTransactions.cancel();
+    };
+  }, [debouncedFetchTransactions]);
+
+  // Normalize notes
+  const getNotesDisplay = useCallback((notes) => {
+    if (!notes) return 'N/A';
+    if (typeof notes === 'string') return notes;
+    if (typeof notes === 'object')
+      return notes.note || JSON.stringify(notes) || 'N/A';
+    return 'N/A';
+  }, []);
+
+  // Get transaction type color
+  const getTransactionColor = useCallback((type) => {
+    switch (type) {
+      case 'ADD':
+        return 'text-green-500';
+      case 'DISTRIBUTE':
+        return 'text-red-500';
+      case 'DEATH':
+        return 'text-gray-500';
+      case 'DAMAGED':
+        return 'text-orange-500';
+      default:
+        return 'text-black';
+    }
+  }, []);
+
+  // Export transactions to PDF (all filtered transactions)
+  const exportToPDF = useCallback(async () => {
+    if (transactions.length === 0) {
+      toast.warning('No Transactions', {
+        description: 'No transactions available to export.',
+      });
+      return;
+    }
+
+    try {
+      const doc = new jsPDF();
+      const filterText = [
+        startDate
+          ? `From: ${format(new Date(startDate), 'dd MMMM yyyy', {
+              locale: id,
+            })}`
+          : '',
+        endDate
+          ? `To: ${format(new Date(endDate), 'dd MMMM yyyy', { locale: id })}`
+          : '',
+        selectedLobsterType !== 'all'
+          ? `Lobster Type: ${selectedLobsterType}`
+          : 'Lobster Type: All',
+        selectedTransactionType !== 'all'
+          ? `Transaction Type: ${selectedTransactionType}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join(' | ');
+
+      doc.text('Transaction History', 14, 20);
+      if (filterText) doc.text(filterText, 14, 27);
+
+      // Fetch all transactions for PDF (no pagination)
       const query = supabase
         .from('transactions')
         .select(
@@ -116,92 +266,11 @@ export default function Transaksi() {
 
       const { data, error } = await query;
       if (error) throw error;
-      setTransactions(data || []);
-    } catch (error) {
-      setError(error.message);
-      toast.error('Failed to load transactions', {
-        description: error.message,
-      });
-    } finally {
-      setTableLoading(false);
-    }
-  }, [startDate, endDate, selectedLobsterType, selectedTransactionType]);
-
-  // Debounced fetch
-  const debouncedFetchTransactions = useCallback(
-    debounce(fetchTransactions, 300, { leading: false, trailing: true }),
-    [fetchTransactions]
-  );
-
-  // Clean up debounce on component unmount
-  useEffect(() => {
-    return () => {
-      debouncedFetchTransactions.cancel();
-    };
-  }, [debouncedFetchTransactions]);
-
-  // Normalize notes
-  const getNotesDisplay = (notes) => {
-    if (!notes) return 'N/A';
-    if (typeof notes === 'string') return notes;
-    if (typeof notes === 'object')
-      return notes.note || JSON.stringify(notes) || 'N/A';
-    return 'N/A';
-  };
-
-  // Get transaction type color
-  const getTransactionColor = (type) => {
-    switch (type) {
-      case 'ADD':
-        return 'text-green-500';
-      case 'DISTRIBUTE':
-        return 'text-red-500';
-      case 'DEATH':
-        return 'text-gray-500';
-      case 'DAMAGED':
-        return 'text-orange-500';
-      default:
-        return 'text-black';
-    }
-  };
-
-  // Export transactions to PDF
-  const exportToPDF = () => {
-    if (transactions.length === 0) {
-      toast.warning('No Transactions', {
-        description: 'No transactions available to export.',
-      });
-      return;
-    }
-
-    try {
-      const doc = new jsPDF();
-      const filterText = [
-        startDate
-          ? `From: ${format(new Date(startDate), 'dd MMMM yyyy', {
-              locale: id,
-            })}`
-          : '',
-        endDate
-          ? `To: ${format(new Date(endDate), 'dd MMMM yyyy', { locale: id })}`
-          : '',
-        selectedLobsterType !== 'all'
-          ? `Lobster Type: ${selectedLobsterType}`
-          : 'Lobster Type: All',
-        selectedTransactionType !== 'all'
-          ? `Transaction Type: ${selectedTransactionType}`
-          : '',
-      ]
-        .filter(Boolean)
-        .join(' | ');
-
-      doc.text('Transaction History', 14, 20);
-      if (filterText) doc.text(filterText, 14, 27);
 
       autoTable(doc, {
         startY: filterText ? 34 : 30,
         head: [['Type', 'Lobster', 'Weight', 'Quantity', 'Notes', 'Date']],
-        body: transactions.map((t) => [
+        body: (data || []).map((t) => [
           t.transaction_type || 'Unknown',
           t.lobster_types?.name || 'N/A',
           `${t.weight_classes?.weight_range} gram` || 'N/A',
@@ -249,28 +318,35 @@ export default function Transaksi() {
         description: error.message || 'An unexpected error occurred.',
       });
     }
-  };
+  }, [
+    startDate,
+    endDate,
+    selectedLobsterType,
+    selectedTransactionType,
+    getNotesDisplay,
+  ]);
 
   // Clear all filters
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setStartDate('');
     setEndDate('');
     setSelectedLobsterType('all');
     setSelectedTransactionType('all');
-    debouncedFetchTransactions.cancel(); // Cancel any pending debounced fetch
-    fetchTransactions(); // Fetch immediately with reset filters
-  };
+    setCurrentPage(1); // Reset to first page
+    debouncedFetchTransactions.cancel();
+    fetchTransactions();
+  }, [debouncedFetchTransactions, fetchTransactions]);
 
-  // Initial fetch and real-time subscription
+  // Initial data fetch (after auth)
   useEffect(() => {
-    if (user) {
+    if (user && !error) {
       const initialize = async () => {
-        setLoading(true);
         setTableLoading(true);
         try {
           await Promise.all([fetchTransactions(), fetchLobsterTypes()]);
+        } catch (err) {
+          setError(err.message);
         } finally {
-          setLoading(false);
           setTableLoading(false);
         }
       };
@@ -287,11 +363,11 @@ export default function Transaksi() {
 
       return () => supabase.removeChannel(subscription);
     }
-  }, [user]);
+  }, [user, error, debouncedFetchTransactions, fetchTransactions]);
 
-  // Fetch transactions when filters change
+  // Fetch transactions when filters or pagination change
   useEffect(() => {
-    if (user) {
+    if (user && !error) {
       debouncedFetchTransactions();
     }
   }, [
@@ -300,10 +376,138 @@ export default function Transaksi() {
     endDate,
     selectedLobsterType,
     selectedTransactionType,
+    currentPage,
+    itemsPerPage,
     debouncedFetchTransactions,
+    error,
   ]);
 
-  // Render loading state
+  // Pagination controls
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+  const handlePreviousPage = useCallback(() => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  }, [currentPage]);
+
+  const handleNextPage = useCallback(() => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  }, [currentPage, totalPages]);
+
+  // Memoized filter inputs
+  const filterInputs = useMemo(
+    () => (
+      <div className="flex flex-col sm:flex-row gap-4">
+        <Input
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          placeholder="Start Date"
+        />
+        <Input
+          type="date"
+          value={endDate}
+          onChange={(e) => setEndDate(e.target.value)}
+          placeholder="End Date"
+        />
+        <Select
+          value={selectedLobsterType}
+          onValueChange={setSelectedLobsterType}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select Lobster Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {lobsterTypes.map((type) => (
+              <SelectItem key={type} value={type}>
+                {type}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={selectedTransactionType}
+          onValueChange={setSelectedTransactionType}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select Transaction Type" />
+          </SelectTrigger>
+          <SelectContent>
+            {transactionTypes.map((type) => (
+              <SelectItem key={type} value={type}>
+                {type === 'all' ? 'All Transaction Types' : type}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="outline" onClick={clearFilters}>
+          Clear Filters
+        </Button>
+      </div>
+    ),
+    [
+      startDate,
+      endDate,
+      selectedLobsterType,
+      selectedTransactionType,
+      lobsterTypes,
+      transactionTypes,
+      clearFilters,
+    ]
+  );
+
+  // Memoized pagination controls
+  const paginationControls = useMemo(
+    () => (
+      <div className="flex items-center justify-between gap-4 mt-4">
+        <div className="flex items-center gap-2">
+          <span>Rows per page:</span>
+          <Select
+            value={itemsPerPage.toString()}
+            onValueChange={(value) => {
+              setItemsPerPage(Number(value));
+              setCurrentPage(1); // Reset to first page
+            }}
+          >
+            <SelectTrigger className="w-[80px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handlePreviousPage}
+            disabled={currentPage === 1}
+          >
+            Previous
+          </Button>
+          <span>
+            Page {currentPage} of {totalPages || 1}
+          </span>
+          <Button
+            variant="outline"
+            onClick={handleNextPage}
+            disabled={currentPage >= totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    ),
+    [itemsPerPage, currentPage, totalPages, handlePreviousPage, handleNextPage]
+  );
+
+  // Render loading state (only for initial auth)
   if (loading) {
     return (
       <SidebarProvider>
@@ -316,7 +520,7 @@ export default function Transaksi() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p>Loading transactions...</p>
+            <p>Loading authentication...</p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -363,6 +567,7 @@ export default function Transaksi() {
     );
   }
 
+  // Main render
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -378,54 +583,7 @@ export default function Transaksi() {
             <h2 className="text-2xl font-bold">Transaction History</h2>
             <Button onClick={exportToPDF}>Download PDF</Button>
           </div>
-          <div className="flex flex-col sm:flex-row gap-4">
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              placeholder="Start Date"
-            />
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              placeholder="End Date"
-            />
-            <Select
-              value={selectedLobsterType}
-              onValueChange={setSelectedLobsterType}
-            >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select Lobster Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {lobsterTypes.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={selectedTransactionType}
-              onValueChange={setSelectedTransactionType}
-            >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Select Transaction Type" />
-              </SelectTrigger>
-              <SelectContent>
-                {transactionTypes.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type === 'all' ? 'All Transaction Types' : type}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" onClick={clearFilters}>
-              Clear Filters
-            </Button>
-          </div>
+          {filterInputs}
           <Table>
             <TableCaption>Transaksi Terakhir</TableCaption>
             <TableHeader>
@@ -440,7 +598,6 @@ export default function Transaksi() {
             </TableHeader>
             <TableBody>
               {tableLoading ? (
-                // Show 3 skeleton rows to mimic loading
                 Array.from({ length: 3 }).map((_, index) => (
                   <TableRow key={`skeleton-${index}`}>
                     <TableCell>
@@ -501,6 +658,7 @@ export default function Transaksi() {
               )}
             </TableBody>
           </Table>
+          {paginationControls}
         </div>
       </SidebarInset>
     </SidebarProvider>
