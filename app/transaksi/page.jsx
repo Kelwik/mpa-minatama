@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { AppSidebar } from '@/components/app-sidebar';
 import {
@@ -19,31 +19,66 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import debounce from 'lodash/debounce';
 
 export default function Transaksi() {
   const [user, setUser] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [lobsterTypes, setLobsterTypes] = useState([]);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [selectedLobsterType, setSelectedLobsterType] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   // Check authentication
-  const fetchSession = async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    setUser(session?.user || null);
-    setLoading(false);
+  useEffect(() => {
+    const fetchSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      setUser(session?.user || null);
+      setLoading(false);
+    };
+    fetchSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setUser(session?.user || null);
+        setLoading(false);
+      }
+    );
+
+    return () => authListener.subscription?.unsubscribe();
+  }, []);
+
+  // Fetch lobster types for filter dropdown
+  const fetchLobsterTypes = async () => {
+    const { data, error } = await supabase
+      .from('lobster_types')
+      .select('name')
+      .order('name');
+    if (error) throw error;
+    setLobsterTypes(data.map((type) => type.name));
   };
 
-  // Fetch transactions
-  const fetchTransactions = async () => {
+  // Fetch transactions with filters
+  const fetchTransactions = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const query = supabase
         .from('transactions')
         .select(
           `
@@ -56,6 +91,21 @@ export default function Transaksi() {
         `
         )
         .order('transaction_date', { ascending: false });
+
+      if (startDate)
+        query.gte('transaction_date', new Date(startDate).toISOString());
+      if (endDate)
+        query.lte('transaction_date', new Date(endDate).toISOString());
+      if (selectedLobsterType !== 'all') {
+        const { data: typeData } = await supabase
+          .from('lobster_types')
+          .select('id')
+          .eq('name', selectedLobsterType)
+          .single();
+        if (typeData) query.eq('type_id', typeData.id);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       setTransactions(data || []);
     } catch (error) {
@@ -64,15 +114,20 @@ export default function Transaksi() {
         description: error.message,
       });
     }
-  };
+  }, [startDate, endDate, selectedLobsterType]);
 
-  // Normalize notes (handle objects, strings, null)
+  // Debounced fetch to prevent excessive queries
+  const debouncedFetchTransactions = useCallback(
+    debounce(fetchTransactions, 300),
+    [fetchTransactions]
+  );
+
+  // Normalize notes
   const getNotesDisplay = (notes) => {
     if (!notes) return 'N/A';
     if (typeof notes === 'string') return notes;
-    if (typeof notes === 'object') {
+    if (typeof notes === 'object')
       return notes.note || JSON.stringify(notes) || 'N/A';
-    }
     return 'N/A';
   };
 
@@ -86,68 +141,97 @@ export default function Transaksi() {
     }
 
     try {
-      console.log('Exporting PDF with transactions:', transactions);
       const doc = new jsPDF();
-      // Apply autoTable to jsPDF instance
-      autoTable(doc, {
-        startY: 30,
-        head: [['Type', 'Lobster', 'Weight', 'Quantity', 'Notes', 'Date']],
-        body: transactions.map((t) => {
-          const row = [
-            t.transaction_type || 'Unknown',
-            t.lobster_types?.name || 'N/A',
-            t.weight_classes?.weight_range || 'N/A',
-            `${Math.abs(t.quantity) ?? 0} Ekor`,
-            getNotesDisplay(t.notes),
-            t.transaction_date
-              ? format(new Date(t.transaction_date), 'dd MMMM yyyy', {
-                  locale: id,
-                })
-              : 'N/A',
-          ];
-          console.log('PDF row:', row);
-          return row;
-        }),
-      });
+      const filterText = [
+        startDate
+          ? `From: ${format(new Date(startDate), 'dd MMMM yyyy', {
+              locale: id,
+            })}`
+          : '',
+        endDate
+          ? `To: ${format(new Date(endDate), 'dd MMMM yyyy', { locale: id })}`
+          : '',
+        selectedLobsterType !== 'all'
+          ? `Lobster Type: ${selectedLobsterType}`
+          : 'Lobster Type: All',
+      ]
+        .filter(Boolean)
+        .join(' | ');
+
       doc.text('Transaction History', 14, 20);
-      console.log('Saving PDF...');
+      if (filterText) doc.text(filterText, 14, 27);
+
+      autoTable(doc, {
+        startY: filterText ? 34 : 30,
+        head: [['Type', 'Lobster', 'Weight', 'Quantity', 'Notes', 'Date']],
+        body: transactions.map((t) => [
+          t.transaction_type || 'Unknown',
+          t.lobster_types?.name || 'N/A',
+          t.weight_classes?.weight_range || 'N/A',
+          `${Math.abs(t.quantity) ?? 0} Ekor`,
+          getNotesDisplay(t.notes),
+          t.transaction_date
+            ? format(new Date(t.transaction_date), 'dd MMMM yyyy', {
+                locale: id,
+              })
+            : 'N/A',
+        ]),
+      });
+
       doc.save('transactions.pdf');
       toast.success('PDF Downloaded', {
-        description: 'Transaction history saved as transactions.pdf',
+        description: 'Filtered transaction history saved as transactions.pdf',
       });
     } catch (error) {
-      console.error('PDF Export Error:', error);
       toast.error('PDF Export Failed', {
         description: error.message || 'An unexpected error occurred.',
       });
     }
   };
 
+  // Clear all filters
+  const clearFilters = () => {
+    setStartDate('');
+    setEndDate('');
+    setSelectedLobsterType('all');
+    debouncedFetchTransactions();
+  };
+
   // Initial fetch and real-time subscription
   useEffect(() => {
-    fetchSession();
+    if (user) {
+      const initialize = async () => {
+        setLoading(true);
+        await Promise.all([fetchTransactions(), fetchLobsterTypes()]);
+        setLoading(false);
+      };
+      initialize();
 
-    const initialize = async () => {
-      await fetchTransactions();
-    };
+      const subscription = supabase
+        .channel('transactions')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'transactions' },
+          debouncedFetchTransactions
+        )
+        .subscribe();
 
-    initialize();
+      return () => supabase.removeChannel(subscription);
+    }
+  }, [user]);
 
-    const subscription = supabase
-      .channel('transactions')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'transactions' },
-        () => {
-          fetchTransactions();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, []);
+  // Fetch transactions when filters change
+  useEffect(() => {
+    if (user) {
+      debouncedFetchTransactions();
+    }
+  }, [
+    user,
+    startDate,
+    endDate,
+    selectedLobsterType,
+    debouncedFetchTransactions,
+  ]);
 
   // Render loading state
   if (loading) {
@@ -158,10 +242,7 @@ export default function Transaksi() {
           <header className="flex h-16 shrink-0 items-center gap-2">
             <div className="flex items-center gap-2 px-4">
               <SidebarTrigger className="-ml-1" />
-              <Separator
-                orientation="vertical"
-                className="mr-2 data-[orientation=vertical]:h-4"
-              />
+              <Separator orientation="vertical" className="mr-2 h-4" />
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
@@ -181,10 +262,7 @@ export default function Transaksi() {
           <header className="flex h-16 shrink-0 items-center gap-2">
             <div className="flex items-center gap-2 px-4">
               <SidebarTrigger className="-ml-1" />
-              <Separator
-                orientation="vertical"
-                className="mr-2 data-[orientation=vertical]:h-4"
-              />
+              <Separator orientation="vertical" className="mr-2 h-4" />
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
@@ -204,10 +282,7 @@ export default function Transaksi() {
           <header className="flex h-16 shrink-0 items-center gap-2">
             <div className="flex items-center gap-2 px-4">
               <SidebarTrigger className="-ml-1" />
-              <Separator
-                orientation="vertical"
-                className="mr-2 data-[orientation=vertical]:h-4"
-              />
+              <Separator orientation="vertical" className="mr-2 h-4" />
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
@@ -225,16 +300,46 @@ export default function Transaksi() {
         <header className="flex h-16 shrink-0 items-center gap-2">
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1" />
-            <Separator
-              orientation="vertical"
-              className="mr-2 data-[orientation=vertical]:h-4"
-            />
+            <Separator orientation="vertical" className="mr-2 h-4" />
           </div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
           <div className="flex justify-between items-center">
             <h2 className="text-2xl font-bold">Transaction History</h2>
             <Button onClick={exportToPDF}>Download PDF</Button>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              placeholder="Start Date"
+            />
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              placeholder="End Date"
+            />
+            <Select
+              value={selectedLobsterType}
+              onValueChange={setSelectedLobsterType}
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Select Lobster Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                {lobsterTypes.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={clearFilters}>
+              Clear Filters
+            </Button>
           </div>
           <Table>
             <TableCaption>Transaksi Terakhir</TableCaption>

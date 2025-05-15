@@ -331,7 +331,7 @@ export default function Stock() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p>Loading stock...</p>
+            <p className="text-gray-500 dark:text-gray-400">Loading stock...</p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -353,7 +353,9 @@ export default function Stock() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p>Please log in to view stock.</p>
+            <p className="text-gray-500 dark:text-gray-400">
+              Please log in to view stock.
+            </p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -375,7 +377,7 @@ export default function Stock() {
             </div>
           </header>
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-            <p className="text-red-500">Error: {error}</p>
+            <p className="text-red-500 dark:text-red-400">Error: {error}</p>
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -397,12 +399,16 @@ export default function Stock() {
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">Stock Management</h2>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              Stock Management
+            </h2>
             <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
               <DialogTrigger asChild>
-                <Button>Add Transaction</Button>
+                <Button className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white">
+                  Add Transaction
+                </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
                 <DialogHeader>
                   <DialogTitle>Add Transaction</DialogTitle>
                 </DialogHeader>
@@ -422,11 +428,11 @@ export default function Stock() {
                             value={field.value}
                           >
                             <FormControl>
-                              <SelectTrigger>
+                              <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
                                 <SelectValue placeholder="Select lobster type" />
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent>
+                            <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                               {lobsterTypes.map((type) => (
                                 <SelectItem key={type.id} value={type.name}>
                                   {type.name}
@@ -449,11 +455,11 @@ export default function Stock() {
                             value={field.value}
                           >
                             <FormControl>
-                              <SelectTrigger>
+                              <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
                                 <SelectValue placeholder="Select weight class" />
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent>
+                            <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                               {allWeightClasses.map((wc) => (
                                 <SelectItem key={wc.id} value={wc.weight_range}>
                                   {wc.weight_range}
@@ -474,6 +480,7 @@ export default function Stock() {
                           <FormControl>
                             <Input
                               type="number"
+                              className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                               {...field}
                               onChange={(e) =>
                                 field.onChange(parseInt(e.target.value))
@@ -496,11 +503,11 @@ export default function Stock() {
                             value={field.value}
                           >
                             <FormControl>
-                              <SelectTrigger>
+                              <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
                                 <SelectValue placeholder="Select transaction type" />
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent>
+                            <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                               <SelectItem value="ADD">Add</SelectItem>
                               <SelectItem value="DISTRIBUTE">
                                 Distribute
@@ -518,23 +525,35 @@ export default function Stock() {
                         <FormItem>
                           <FormLabel>Note (Optional)</FormLabel>
                           <FormControl>
-                            <Input {...field} />
+                            <Input
+                              className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                              {...field}
+                            />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                    {formError && <p className="text-red-500">{formError}</p>}
+                    {formError && (
+                      <p className="text-red-500 dark:text-red-400">
+                        {formError}
+                      </p>
+                    )}
                     <div className="flex justify-end gap-2">
                       <Button
                         type="button"
                         variant="outline"
+                        className="border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700"
                         onClick={() => setIsModalOpen(false)}
                         disabled={isSubmitting}
                       >
                         Cancel
                       </Button>
-                      <Button type="submit" disabled={isSubmitting}>
+                      <Button
+                        type="submit"
+                        className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white"
+                        disabled={isSubmitting}
+                      >
                         {isSubmitting ? 'Submitting...' : 'Submit Transaction'}
                       </Button>
                     </div>
@@ -546,33 +565,53 @@ export default function Stock() {
 
           {/* Stock by Type */}
           <div className="mb-8">
-            <h3 className="text-xl font-semibold mb-4">
+            <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
               Stock by Lobster Type
             </h3>
             {stockByType.length === 0 ? (
-              <p>
+              <p className="text-gray-500 dark:text-gray-400">
                 No inventory data available. Add lobsters using the button
                 above.
               </p>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {stockByType.map((type) => (
-                  <Card key={type.lobster_type} className="p-4">
-                    <CardHeader>
-                      <CardTitle>{type.lobster_type}</CardTitle>
+                  <Card
+                    key={type.lobster_type}
+                    className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200"
+                  >
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                        {type.lobster_type}
+                      </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                      <p>Total: {type.total_quantity} Ekor</p>
+                    <CardContent className="pt-2">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Total
+                        </span>
+                        <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
+                          {type.total_quantity} Ekor
+                        </span>
+                      </div>
                       {weightClasses[type.lobster_type]?.length > 0 ? (
-                        <div className="mt-2">
+                        <div className="space-y-2">
                           {weightClasses[type.lobster_type].map((wc) => (
-                            <p key={wc.weight_range}>
-                              {wc.weight_range}: {wc.quantity} Ekor
-                            </p>
+                            <div
+                              key={wc.weight_range}
+                              className="flex items-center justify-between py-1 border-t border-gray-100 dark:border-gray-700"
+                            >
+                              <span className="text-sm text-gray-600 dark:text-gray-400">
+                                {wc.weight_range}
+                              </span>
+                              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {wc.quantity} Ekor
+                              </span>
+                            </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="mt-2 text-gray-500">
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                           No weight classes with stock
                         </p>
                       )}
