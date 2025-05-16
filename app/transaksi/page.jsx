@@ -49,6 +49,8 @@ export default function Transaksi() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
+  const [incomingStock, setIncomingStock] = useState(0);
+  const [outgoingStock, setOutgoingStock] = useState(0);
 
   const transactionTypes = ['all', 'ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED'];
 
@@ -89,7 +91,7 @@ export default function Transaksi() {
     }
   };
 
-  // Fetch transactions with filters and pagination
+  // Fetch transactions with filters, pagination, and stock totals
   const fetchTransactions = useCallback(async () => {
     try {
       setTableLoading(true);
@@ -117,10 +119,24 @@ export default function Transaksi() {
         .order('transaction_date', { ascending: false })
         .range(from, to);
 
-      if (startDate)
-        query.gte('transaction_date', new Date(startDate).toISOString());
-      if (endDate)
-        query.lte('transaction_date', new Date(endDate).toISOString());
+      // Query for stock totals
+      const stockQuery = supabase
+        .from('transactions')
+        .select('transaction_type, quantity');
+
+      // Apply filters
+      if (startDate) {
+        const startISO = new Date(startDate).toISOString();
+        query.gte('transaction_date', startISO);
+        countQuery.gte('transaction_date', startISO);
+        stockQuery.gte('transaction_date', startISO);
+      }
+      if (endDate) {
+        const endISO = new Date(endDate).toISOString();
+        query.lte('transaction_date', endISO);
+        countQuery.lte('transaction_date', endISO);
+        stockQuery.lte('transaction_date', endISO);
+      }
       if (selectedLobsterType !== 'all') {
         const { data: typeData } = await supabase
           .from('lobster_types')
@@ -130,21 +146,42 @@ export default function Transaksi() {
         if (typeData) {
           query.eq('type_id', typeData.id);
           countQuery.eq('type_id', typeData.id);
+          stockQuery.eq('type_id', typeData.id);
         }
       }
       if (selectedTransactionType !== 'all') {
         query.eq('transaction_type', selectedTransactionType);
         countQuery.eq('transaction_type', selectedTransactionType);
+        // stockQuery omits transaction_type filter to include all types for stock calculation
       }
 
-      const [{ data, error }, { count }] = await Promise.all([
-        query,
-        countQuery,
-      ]);
+      const [
+        { data, error },
+        { count },
+        { data: stockData, error: stockError },
+      ] = await Promise.all([query, countQuery, stockQuery]);
 
-      if (error) throw error;
+      if (error || stockError) throw error || stockError;
+
+      // Calculate incoming and outgoing stock
+      const incoming = (stockData || []).reduce((sum, t) => {
+        if (t.transaction_type === 'ADD') {
+          return sum + (t.quantity || 0);
+        }
+        return sum;
+      }, 0);
+
+      const outgoing = (stockData || []).reduce((sum, t) => {
+        if (['DISTRIBUTE', 'DEATH', 'DAMAGED'].includes(t.transaction_type)) {
+          return sum + Math.abs(t.quantity || 0);
+        }
+        return sum;
+      }, 0);
+
       setTransactions(data || []);
       setTotalItems(count || 0);
+      setIncomingStock(incoming);
+      setOutgoingStock(outgoing);
     } catch (error) {
       setError(error.message);
       toast.error('Gagal Memuat Transaksi', {
@@ -237,6 +274,7 @@ export default function Transaksi() {
         selectedTransactionType !== 'all'
           ? `Jenis Transaksi: ${transactionTypeDisplay[selectedTransactionType]}`
           : '',
+        `Lobster Masuk: ${incomingStock} Ekor | Lobster Keluar: ${outgoingStock} Ekor`,
       ]
         .filter(Boolean)
         .join(' | ');
@@ -293,6 +331,16 @@ export default function Transaksi() {
               })
             : 'Tidak Ada',
         ]),
+        foot: [
+          [
+            '',
+            '',
+            '',
+            `Lobster Masuk: ${incomingStock} Ekor | Lobster Keluar: ${outgoingStock} Ekor`,
+            '',
+            '',
+          ],
+        ],
       });
 
       // Build dynamic filename
@@ -337,6 +385,8 @@ export default function Transaksi() {
     selectedLobsterType,
     selectedTransactionType,
     getNotesDisplay,
+    incomingStock,
+    outgoingStock,
   ]);
 
   // Clear all filters
@@ -598,7 +648,10 @@ export default function Transaksi() {
           </div>
           {filterInputs}
           <Table>
-            <TableCaption>Transaksi Terakhir</TableCaption>
+            <TableCaption>
+              Transaksi Terakhir | Lobster Masuk: {incomingStock} Ekor | Lobster
+              Keluar: {outgoingStock} Ekor
+            </TableCaption>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[100px]">Jenis Transaksi</TableHead>
