@@ -112,6 +112,7 @@ export default function Transaksi() {
           quantity,
           transaction_date,
           notes,
+          destination,
           lobster_types (name),
           weight_classes (weight_range)
         `
@@ -212,6 +213,11 @@ export default function Transaksi() {
     };
   }, [debouncedFetchTransactions]);
 
+  // Normalize destination
+  const getDestinationDisplay = useCallback((destination) => {
+    return destination || 'Tidak Ada';
+  }, []);
+
   // Normalize notes
   const getNotesDisplay = useCallback((notes) => {
     if (!notes) return 'Tidak Ada';
@@ -291,6 +297,7 @@ export default function Transaksi() {
           quantity,
           transaction_date,
           notes,
+          destination,
           lobster_types (name),
           weight_classes (weight_range)
         `
@@ -318,12 +325,23 @@ export default function Transaksi() {
 
       autoTable(doc, {
         startY: filterText ? 34 : 30,
-        head: [['Jenis', 'Lobster', 'Berat', 'Jumlah', 'Catatan', 'Tanggal']],
+        head: [
+          [
+            'Jenis',
+            'Lobster',
+            'Berat',
+            'Jumlah',
+            'Tujuan',
+            'Catatan',
+            'Tanggal',
+          ],
+        ],
         body: (data || []).map((t) => [
           transactionTypeDisplay[t.transaction_type] || 'Tidak Diketahui',
           t.lobster_types?.name || 'Tidak Ada',
           `${t.weight_classes?.weight_range} gram` || 'Tidak Ada',
           `${Math.abs(t.quantity) ?? 0} Ekor`,
+          getDestinationDisplay(t.destination),
           getNotesDisplay(t.notes),
           t.transaction_date
             ? format(new Date(t.transaction_date), 'dd MMMM yyyy', {
@@ -337,6 +355,7 @@ export default function Transaksi() {
             '',
             '',
             `Lobster Masuk: ${incomingStock} Ekor | Lobster Keluar: ${outgoingStock} Ekor`,
+            '',
             '',
             '',
           ],
@@ -385,6 +404,7 @@ export default function Transaksi() {
     selectedLobsterType,
     selectedTransactionType,
     getNotesDisplay,
+    getDestinationDisplay,
     incomingStock,
     outgoingStock,
   ]);
@@ -658,6 +678,7 @@ export default function Transaksi() {
                 <TableHead>Jenis Lobster</TableHead>
                 <TableHead>Berat Lobster</TableHead>
                 <TableHead>Jumlah Lobster</TableHead>
+                <TableHead>Tujuan</TableHead>
                 <TableHead>Catatan</TableHead>
                 <TableHead className="text-right">Tanggal Transaksi</TableHead>
               </TableRow>
@@ -679,6 +700,9 @@ export default function Transaksi() {
                       <Skeleton className="h-4 w-[80px]" />
                     </TableCell>
                     <TableCell>
+                      <Skeleton className="h-4 w-[100px]" />
+                    </TableCell>
+                    <TableCell>
                       <Skeleton className="h-4 w-[150px]" />
                     </TableCell>
                     <TableCell>
@@ -688,7 +712,7 @@ export default function Transaksi() {
                 ))
               ) : transactions.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center">
+                  <TableCell colSpan={7} className="text-center">
                     Tidak ada transaksi ditemukan.
                   </TableCell>
                 </TableRow>
@@ -713,6 +737,9 @@ export default function Transaksi() {
                       className={getTransactionColor(t.transaction_type)}
                     >
                       {Math.abs(t.quantity) ?? 0} Ekor
+                    </TableCell>
+                    <TableCell>
+                      {getDestinationDisplay(t.destination)}
                     </TableCell>
                     <TableCell>{getNotesDisplay(t.notes)}</TableCell>
                     <TableCell className="text-right">
