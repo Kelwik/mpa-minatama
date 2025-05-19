@@ -1,4 +1,5 @@
-import React from 'react';
+'use client';
+import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,9 +11,28 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { login } from '@/app/login/actions';
+import { login } from '@/app/login/actions'; // assuming this is a client-safe function
 
 export function LoginForm({ className, ...props }) {
+  const [isLoading, setIsLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setIsLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email');
+    const password = formData.get('password');
+
+    try {
+      await login({ email, password }); // make sure `login` accepts these parameters
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
     <div className={cn('flex flex-col gap-6', className)} {...props}>
       <Card>
@@ -23,7 +43,7 @@ export function LoginForm({ className, ...props }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form>
+          <form onSubmit={handleSubmit}>
             <div className="grid gap-6">
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
@@ -47,8 +67,8 @@ export function LoginForm({ className, ...props }) {
                 </div>
                 <Input id="password" type="password" name="password" required />
               </div>
-              <Button type="submit" className="w-full" formAction={login}>
-                Login
+              <Button type="submit" disabled={isLoading} className="w-full">
+                {isLoading ? 'Loading...' : 'Login'}
               </Button>
             </div>
           </form>
