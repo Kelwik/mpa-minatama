@@ -19,11 +19,11 @@ import {
 
 const chartConfig = {
   Masuk: {
-    label: 'Incoming',
+    label: 'Masuk',
     color: '#8884d8',
   },
   Keluar: {
-    label: 'Outgoing',
+    label: 'Keluar',
     color: '#82ca9d',
   },
 };
@@ -34,7 +34,9 @@ export function ChartBulan({ chartData }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tren Transaksi Lobster</CardTitle>
+        <CardTitle className="text-gray-900 dark:text-gray-100">
+          Tren Transaksi Lobster
+        </CardTitle>
         <CardDescription>
           Pemasukan dan Pengeluaran Tahun: {currentYear}
         </CardDescription>

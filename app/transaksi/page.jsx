@@ -492,7 +492,7 @@ export default function Transaksi() {
             'Lobster',
             'Berat',
             'Jumlah',
-            'Tujuan',
+            'Tujuan/Asal',
             'Catatan',
             'Tanggal',
           ],
@@ -814,7 +814,7 @@ export default function Transaksi() {
                     Jumlah
                   </TableHead>
                   <TableHead className="font-semibold text-gray-900 dark:text-gray-100">
-                    Tujuan
+                    Tujuan/Asal
                   </TableHead>
                   <TableHead className="font-semibold text-gray-900 dark:text-gray-100">
                     Catatan
@@ -1096,7 +1096,7 @@ export default function Transaksi() {
                   htmlFor="destination"
                   className="text-right text-gray-900 dark:text-gray-100"
                 >
-                  Tujuan
+                  Tujuan/Asal
                 </Label>
                 <Input
                   id="destination"

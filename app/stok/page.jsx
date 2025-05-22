@@ -628,11 +628,11 @@ export default function Stock() {
                       name="destination"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Tujuan (Opsional)</FormLabel>
+                          <FormLabel>Tujuan/Asal (Opsional)</FormLabel>
                           <FormControl>
                             <Input
                               className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 rounded-md"
-                              placeholder="Masukkan tujuan (misalnya, Pasar, Restoran)"
+                              placeholder="Masukkan tujuan atau asal (misalnya, Pasar, Restoran)"
                               {...field}
                             />
                           </FormControl>
