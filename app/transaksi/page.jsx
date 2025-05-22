@@ -33,11 +33,21 @@ import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 
 export default function Transaksi() {
   const [user, setUser] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [lobsterTypes, setLobsterTypes] = useState([]);
+  const [weightClasses, setWeightClasses] = useState([]);
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
@@ -52,8 +62,19 @@ export default function Transaksi() {
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState(null);
+  const [editForm, setEditForm] = useState({
+    transaction_type: '',
+    type_id: '',
+    weight_class_id: '',
+    quantity: '',
+    transaction_date: '',
+    destination: '',
+    notes: '',
+  });
 
-  const transactionTypes = ['all', 'ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED'];
+  const transactionTypes = ['ADD', 'DISTRIBUTE', 'DEATH', 'DAMAGED'];
 
   // Check authentication
   useEffect(() => {
@@ -76,23 +97,30 @@ export default function Transaksi() {
     return () => authListener.subscription?.unsubscribe();
   }, []);
 
-  // Fetch lobster types for filter dropdown
-  const fetchLobsterTypes = async () => {
+  // Fetch lobster types and weight classes
+  const fetchReferenceData = async () => {
     try {
-      const { data, error } = await supabase
-        .from('lobster_types')
-        .select('name')
-        .order('name');
-      if (error) throw error;
-      setLobsterTypes(data.map((type) => type.name));
+      const [lobsterTypesRes, weightClassesRes] = await Promise.all([
+        supabase.from('lobster_types').select('id, name').order('name'),
+        supabase
+          .from('weight_classes')
+          .select('id, weight_range')
+          .order('weight_range'),
+      ]);
+
+      if (lobsterTypesRes.error) throw lobsterTypesRes.error;
+      if (weightClassesRes.error) throw weightClassesRes.error;
+
+      setLobsterTypes(lobsterTypesRes.data);
+      setWeightClasses(weightClassesRes.data);
     } catch (error) {
-      toast.error('Gagal Memuat Jenis Lobster', {
+      toast.error('Gagal Memuat Data Referensi', {
         description: error.message,
       });
     }
   };
 
-  // Fetch transactions with filters, pagination, and stock totals
+  // Fetch transactions
   const fetchTransactions = useCallback(async () => {
     try {
       setTableLoading(true);
@@ -103,21 +131,22 @@ export default function Transaksi() {
       const from = (filters.page - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
 
-      // Count total transactions for pagination
       const countQuery = supabase
         .from('transactions')
         .select('*', { count: 'exact', head: true });
 
-      // Main query for transactions
       const query = supabase
         .from('transactions')
         .select(
           `
+          id,
           transaction_type,
           quantity,
           transaction_date,
           notes,
           destination,
+          type_id,
+          weight_class_id,
           lobster_types (name),
           weight_classes (weight_range)
         `
@@ -125,12 +154,10 @@ export default function Transaksi() {
         .order('transaction_date', { ascending: false })
         .range(from, to);
 
-      // Query for stock totals
       const stockQuery = supabase
         .from('transactions')
         .select('transaction_type, quantity');
 
-      // Apply filters
       if (filters.startDate) {
         const startISO =
           new Date(filters.startDate).toISOString().split('T')[0] +
@@ -208,6 +235,127 @@ export default function Transaksi() {
     }
   }, [filters, itemsPerPage]);
 
+  // Open edit modal
+  const openEditModal = (transaction) => {
+    setEditingTransaction(transaction);
+    setEditForm({
+      transaction_type: transaction.transaction_type,
+      type_id: transaction.type_id,
+      weight_class_id: transaction.weight_class_id,
+      quantity: transaction.quantity.toString(),
+      transaction_date: new Date(transaction.transaction_date)
+        .toISOString()
+        .split('T')[0],
+      destination: transaction.destination || '',
+      notes: transaction.notes || '',
+    });
+    setEditModalOpen(true);
+  };
+
+  // Handle edit form change
+  const handleEditFormChange = (field, value) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // Validate stock for ADD transactions
+  const validateStock = async (
+    transactionId,
+    typeId,
+    weightClassId,
+    newQuantity
+  ) => {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('quantity')
+      .eq('type_id', typeId)
+      .eq('weight_class_id', weightClassId)
+      .in('transaction_type', ['DISTRIBUTE', 'DEATH', 'DAMAGED']);
+
+    if (error) throw error;
+
+    const totalOutgoing = (data || []).reduce(
+      (sum, t) => sum + Math.abs(t.quantity),
+      0
+    );
+    const currentAdd = transactions
+      .filter(
+        (t) =>
+          t.id !== transactionId &&
+          t.transaction_type === 'ADD' &&
+          t.type_id === typeId &&
+          t.weight_class_id === weightClassId
+      )
+      .reduce((sum, t) => sum + t.quantity, 0);
+
+    if (newQuantity + currentAdd < totalOutgoing) {
+      throw new Error(
+        `Jumlah tidak cukup. Total keluar: ${totalOutgoing}, total masuk lainnya: ${currentAdd}.`
+      );
+    }
+  };
+
+  // Submit edit form
+  const handleEditSubmit = async () => {
+    if (!editingTransaction) return;
+
+    try {
+      // Validate inputs
+      if (!editForm.transaction_type) {
+        throw new Error('Jenis transaksi diperlukan');
+      }
+      if (!editForm.type_id) {
+        throw new Error('Jenis lobster diperlukan');
+      }
+      if (!editForm.weight_class_id) {
+        throw new Error('Kelas berat diperlukan');
+      }
+      if (
+        !editForm.quantity ||
+        isNaN(editForm.quantity) ||
+        Number(editForm.quantity) <= 0
+      ) {
+        throw new Error('Jumlah harus lebih dari 0');
+      }
+      if (!editForm.transaction_date) {
+        throw new Error('Tanggal transaksi diperlukan');
+      }
+
+      // Validate stock for ADD transactions
+      if (editingTransaction.transaction_type === 'ADD') {
+        await validateStock(
+          editingTransaction.id,
+          editForm.type_id,
+          editForm.weight_class_id,
+          Number(editForm.quantity)
+        );
+      }
+
+      const { error } = await supabase
+        .from('transactions')
+        .update({
+          transaction_type: editForm.transaction_type,
+          type_id: editForm.type_id,
+          weight_class_id: editForm.weight_class_id,
+          quantity: Number(editForm.quantity),
+          transaction_date: new Date(editForm.transaction_date).toISOString(),
+          destination: editForm.destination || null,
+          notes: editForm.notes || null,
+        })
+        .eq('id', editingTransaction.id);
+
+      if (error) throw error;
+
+      toast.success('Transaksi Berhasil Diperbarui');
+      setEditModalOpen(false);
+      setEditingTransaction(null);
+      // Real-time subscription will trigger fetchTransactions
+    } catch (error) {
+      toast.error('Gagal Memperbarui Transaksi', {
+        description: error.message,
+      });
+    }
+  };
+
   // Normalize destination
   const getDestinationDisplay = useCallback((destination) => {
     return destination || 'Tidak Ada';
@@ -283,8 +431,6 @@ export default function Transaksi() {
         .join(' | ');
 
       doc.text('Riwayat Transaksi', 14, 20);
-
-      // Wrap filter text to fit page width (180mm)
       const maxWidth = 180;
       const wrappedText = doc.splitTextToSize(filterText, maxWidth);
       console.log('PDF filter text:', wrappedText);
@@ -292,7 +438,6 @@ export default function Transaksi() {
         doc.text(line, 14, 27 + index * 5);
       });
 
-      // Fetch all transactions for PDF
       const query = supabase
         .from('transactions')
         .select(
@@ -446,7 +591,7 @@ export default function Transaksi() {
       const initialize = async () => {
         setTableLoading(true);
         try {
-          await Promise.all([fetchTransactions(), fetchLobsterTypes()]);
+          await Promise.all([fetchTransactions(), fetchReferenceData()]);
         } catch (err) {
           setError(err.message);
         } finally {
@@ -611,8 +756,8 @@ export default function Transaksi() {
               <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                 <SelectItem value="all">Semua Jenis</SelectItem>
                 {lobsterTypes.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type}
+                  <SelectItem key={type.id} value={type.name}>
+                    {type.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -631,6 +776,7 @@ export default function Transaksi() {
                 <SelectValue placeholder="Pilih Jenis Transaksi" />
               </SelectTrigger>
               <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                <SelectItem value="all">Semua Jenis Transaksi</SelectItem>
                 {transactionTypes.map((type) => (
                   <SelectItem key={type} value={type}>
                     {transactionTypeDisplay[type]}
@@ -676,6 +822,9 @@ export default function Transaksi() {
                   <TableHead className="text-right font-semibold text-gray-900 dark:text-gray-100">
                     Tanggal
                   </TableHead>
+                  <TableHead className="text-right font-semibold text-gray-900 dark:text-gray-100">
+                    Aksi
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -703,12 +852,15 @@ export default function Transaksi() {
                       <TableCell>
                         <Skeleton className="h-4 w-[100px] ml-auto" />
                       </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-4 w-[100px] ml-auto" />
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : transactions.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="text-center text-gray-500 dark:text-gray-400"
                     >
                       Tidak ada transaksi ditemukan untuk filter ini.
@@ -717,9 +869,7 @@ export default function Transaksi() {
                 ) : (
                   transactions.map((t) => (
                     <TableRow
-                      key={`${t.transaction_date}-${t.transaction_type}-${
-                        t.lobster_types?.name || 'tidak_diketahui'
-                      }-${t.weight_classes?.weight_range || 'tidak_diketahui'}`}
+                      key={`${t.id}`}
                       className="hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
                       <TableCell className="font-medium">
@@ -752,6 +902,17 @@ export default function Transaksi() {
                               }
                             )
                           : 'Tidak Ada'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditModal(t)}
+                          className="border-gray-300 dark:border-gray-600 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900"
+                          disabled={tableLoading}
+                        >
+                          Edit
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))
@@ -804,6 +965,184 @@ export default function Transaksi() {
             </div>
           </div>
         </div>
+
+        {/* Edit Transaction Modal */}
+        <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+          <DialogContent className="sm:max-w-[600px] bg-white dark:bg-gray-800">
+            <DialogHeader>
+              <DialogTitle className="text-gray-900 dark:text-gray-100">
+                Edit Transaksi
+              </DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label
+                  htmlFor="transaction_type"
+                  className="text-right text-gray-900 dark:text-gray-100"
+                >
+                  Jenis Transaksi
+                </Label>
+                <Select
+                  id="transaction_type"
+                  value={editForm.transaction_type}
+                  onValueChange={(value) =>
+                    handleEditFormChange('transaction_type', value)
+                  }
+                  className="col-span-3"
+                >
+                  <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
+                    <SelectValue placeholder="Pilih Jenis Transaksi" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                    {transactionTypes.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {transactionTypeDisplay[type]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label
+                  htmlFor="type_id"
+                  className="text-right text-gray-900 dark:text-gray-100"
+                >
+                  Jenis Lobster
+                </Label>
+                <Select
+                  id="type_id"
+                  value={editForm.type_id}
+                  onValueChange={(value) =>
+                    handleEditFormChange('type_id', value)
+                  }
+                  className="col-span-3"
+                >
+                  <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
+                    <SelectValue placeholder="Pilih Jenis Lobster" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                    {lobsterTypes.map((type) => (
+                      <SelectItem key={type.id} value={type.id}>
+                        {type.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label
+                  htmlFor="weight_class_id"
+                  className="text-right text-gray-900 dark:text-gray-100"
+                >
+                  Kelas Berat
+                </Label>
+                <Select
+                  id="weight_class_id"
+                  value={editForm.weight_class_id}
+                  onValueChange={(value) =>
+                    handleEditFormChange('weight_class_id', value)
+                  }
+                  className="col-span-3"
+                >
+                  <SelectTrigger className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600">
+                    <SelectValue placeholder="Pilih Kelas Berat" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
+                    {weightClasses.map((wc) => (
+                      <SelectItem key={wc.id} value={wc.id}>
+                        {wc.weight_range} gram
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label
+                  htmlFor="quantity"
+                  className="text-right text-gray-900 dark:text-gray-100"
+                >
+                  Jumlah (Ekor)
+                </Label>
+                <Input
+                  id="quantity"
+                  type="number"
+                  value={editForm.quantity}
+                  onChange={(e) =>
+                    handleEditFormChange('quantity', e.target.value)
+                  }
+                  className="col-span-3 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+                  min="1"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label
+                  htmlFor="transaction_date"
+                  className="text-right text-gray-900 dark:text-gray-100"
+                >
+                  Tanggal
+                </Label>
+                <Input
+                  id="transaction_date"
+                  type="date"
+                  value={editForm.transaction_date}
+                  onChange={(e) =>
+                    handleEditFormChange('transaction_date', e.target.value)
+                  }
+                  className="col-span-3 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label
+                  htmlFor="destination"
+                  className="text-right text-gray-900 dark:text-gray-100"
+                >
+                  Tujuan
+                </Label>
+                <Input
+                  id="destination"
+                  value={editForm.destination}
+                  onChange={(e) =>
+                    handleEditFormChange('destination', e.target.value)
+                  }
+                  className="col-span-3 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+                  placeholder="Opsional"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-start gap-4">
+                <Label
+                  htmlFor="notes"
+                  className="text-right text-gray-900 dark:text-gray-100"
+                >
+                  Catatan
+                </Label>
+                <Textarea
+                  id="notes"
+                  value={editForm.notes}
+                  onChange={(e) =>
+                    handleEditFormChange('notes', e.target.value)
+                  }
+                  className="col-span-3 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600"
+                  placeholder="Opsional"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setEditModalOpen(false)}
+                className="border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
+              >
+                Batal
+              </Button>
+              <Button
+                onClick={handleEditSubmit}
+                className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white"
+              >
+                Simpan
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </SidebarInset>
     </SidebarProvider>
   );
